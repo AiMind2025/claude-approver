@@ -88,9 +88,32 @@ function json(res, code, obj) {
 
 function readBody(req) {
   return new Promise((resolve) => {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { resolve({}); } });
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      let body = buf.toString('utf8');
+
+      // 检测是否为有效 UTF-8，如果不是尝试 GBK 解码
+      // 通过检查是否包含常见的 UTF-8 无效序列来判断
+      try {
+        // 尝试用 TextDecoder 验证 UTF-8
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        decoder.decode(buf);
+      } catch {
+        // UTF-8 解码失败，尝试 GBK
+        try {
+          const gbkDecoder = new TextDecoder('gbk');
+          body = gbkDecoder.decode(buf);
+          console.log('[编码] 检测到 GBK 编码，已转换为 UTF-8');
+        } catch {
+          // GBK 也失败，用原始 UTF-8（可能有乱码）
+          body = buf.toString('utf8');
+        }
+      }
+
+      try { resolve(JSON.parse(body || '{}')); } catch { resolve({}); }
+    });
   });
 }
 
@@ -278,26 +301,38 @@ function sendEmail(subject, body) {
   });
 }
 
-// ─── 审批逻辑 ─────────────────────────────────────────────────────────────────
-function createRequest({ command, description, risk }) {
+// ─── 审批/对话逻辑 ─────────────────────────────────────────────────────────────
+function createRequest({ command, description, risk, type, conversationId }) {
+  const reqType = type || 'approval';
   const req = {
     id: uid(),
-    command: command || '(无命令)',
+    type: reqType,
+    command: command || '(无)',
     description: description || '',
     risk: risk || 'normal',
     status: 'pending',
+    // 对话相关字段
+    conversationId: conversationId || null,  // 关联同一对话
+    messages: reqType === 'question' ? [{ sender: 'claude', content: command, time: now() }] : null,
+    reply: null,  // 兼容：最后一条用户回复
     created_at: now(),
     decided_at: null,
   };
   store.pending.unshift(req);
   saveJSON(DATA_FILE, store);
 
-  const riskEmoji = { normal: '🟢', warning: '🟡', danger: '🔴' }[risk] || '🟢';
-  const title = `${riskEmoji} Claude 请求审批`;
-  const desp = `**命令:**\n\`\`\`\n${command}\n\`\`\`\n\n**描述:** ${description || '无'}\n\n**风险:** ${risk}`;
+  let title, desp;
+  if (reqType === 'question') {
+    title = conversationId ? '💬 Claude 追问' : '💬 Claude 提问';
+    desp = `**问题:**\n${command}\n\n**说明:** ${description || '无'}`;
+  } else {
+    const riskEmoji = { normal: '🟢', warning: '🟡', danger: '🔴' }[risk] || '🟢';
+    title = `${riskEmoji} Claude 请求审批`;
+    desp = `**命令:**\n\`\`\`\n${command}\n\`\`\`\n\n**描述:** ${description || '无'}\n\n**风险:** ${risk}`;
+  }
 
   pushNotify(title, desp, req.id);
-  console.log(`[新请求] ${req.id}: ${(command || '').slice(0, 60)}`);
+  console.log(`[新请求] ${req.id} (${reqType}): ${(command || '').slice(0, 60)}`);
   return req;
 }
 
@@ -312,6 +347,50 @@ function decideRequest(id, decision) {
   if (store.completed.length > 200) store.completed.length = 200;
   saveJSON(DATA_FILE, store);
   console.log(`[审批] ${req.id} → ${decision}`);
+  return req;
+}
+
+// 用户回复问题（支持多轮）
+function replyRequest(id, message) {
+  const idx = store.pending.findIndex(r => r.id === id);
+  if (idx === -1) return null;
+  const req = store.pending[idx];
+
+  // 添加用户消息到对话历史
+  if (req.messages) {
+    req.messages.push({ sender: 'user', content: message, time: now() });
+  }
+  req.reply = message;  // 记录最新回复
+
+  // 对于问题类型，不移动到 completed，保持 pending 等待追问
+  // 但更新状态让 Claude 知道有新回复
+  req.status = 'replied';
+  saveJSON(DATA_FILE, store);
+  console.log(`[回复] ${req.id}: ${(message || '').slice(0, 50)}`);
+  return req;
+}
+
+// Claude 结束对话
+function closeConversation(id) {
+  const idx = store.pending.findIndex(r => r.id === id);
+  if (idx === -1) {
+    // 可能在 completed 里
+    const cidx = store.completed.findIndex(r => r.id === id);
+    if (cidx !== -1) {
+      store.completed[cidx].status = 'closed';
+      saveJSON(DATA_FILE, store);
+      return store.completed[cidx];
+    }
+    return null;
+  }
+  const req = store.pending[idx];
+  req.status = 'closed';
+  req.decided_at = now();
+  store.completed.unshift(req);
+  store.pending.splice(idx, 1);
+  if (store.completed.length > 200) store.completed.length = 200;
+  saveJSON(DATA_FILE, store);
+  console.log(`[对话结束] ${req.id}`);
   return req;
 }
 
@@ -348,10 +427,27 @@ const apiRoutes = {
     json(res, 200, { ok: true, request: r });
   },
 
+  'POST /api/reply': async (req, res) => {
+    if (!checkAuth(req)) return json(res, 401, { error: '未授权' });
+    const body = await readBody(req);
+    if (!body.message && body.message !== '') return json(res, 400, { error: '缺少 message' });
+    const r = replyRequest(body.id, body.message);
+    if (!r) return json(res, 404, { error: '不存在' });
+    json(res, 200, { ok: true, request: r });
+  },
+
+  'POST /api/close': async (req, res) => {
+    if (!checkAuth(req)) return json(res, 401, { error: '未授权' });
+    const body = await readBody(req);
+    const r = closeConversation(body.id);
+    if (!r) return json(res, 404, { error: '不存在' });
+    json(res, 200, { ok: true, request: r });
+  },
+
   'GET /api/check': (req, res) => {
     const { query } = url.parse(req.url, true);
     const p = store.pending.find(r => r.id === query.id);
-    if (p) return json(res, 200, { status: 'pending', request: p });
+    if (p) return json(res, 200, { status: p.status, request: p });
     const c = store.completed.find(r => r.id === query.id);
     if (c) return json(res, 200, { status: c.status, request: c });
     json(res, 404, { error: '不存在' });
@@ -620,6 +716,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans S
 .info-bar{background:#16213e;padding:8px 16px;font-size:11px;color:#888;
   display:flex;justify-content:space-between;align-items:center}
 .info-bar a{color:#6c5ce7;text-decoration:none}
+
+/* 对话/提问样式 */
+.card-question,.card-question-history{border-left:3px solid #6c5ce7}
+.question-header{font-size:12px;font-weight:700;color:#6c5ce7;margin-bottom:12px}
+.messages{margin-bottom:12px;max-height:300px;overflow-y:auto}
+.msg{padding:10px 12px;border-radius:10px;margin-bottom:8px;max-width:85%}
+.msg-claude{background:#1e3a5f;margin-right:auto;border-bottom-left-radius:2px}
+.msg-user{background:#2d4a2d;margin-left:auto;border-bottom-right-radius:2px}
+.msg-label{font-size:10px;color:#888;margin-bottom:4px}
+.msg-content{font-size:14px;color:#e0e0e0;line-height:1.4;word-break:break-word}
+.reply-box{margin-top:12px}
+.reply-input{width:100%;padding:12px;border:1px solid #2a2a4a;border-radius:8px;
+  background:#0d0d1a;color:#fff;font-size:14px;resize:vertical;outline:none;
+  font-family:inherit;min-height:60px;margin-bottom:10px}
+.reply-input:focus{border-color:#6c5ce7}
+.btn-reply{width:100%;padding:12px;border:none;border-radius:8px;background:#6c5ce7;
+  color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+.btn-reply:active{background:#5a4bd6}
+.tag-replied{background:rgba(108,92,231,.2);color:#6c5ce7}
+.tag-closed{background:rgba(108,92,231,.1);color:#888}
 </style>
 </head>
 <body>
@@ -788,24 +904,49 @@ function renderPending(list) {
   const el = document.getElementById('pending-list');
   const badge = document.getElementById('badge');
   if (!list.length) {
-    el.innerHTML = '<div class="empty"><div class="icon">✅</div><div class="msg">暂无待审批请求</div></div>';
+    el.innerHTML = '<div class="empty"><div class="icon">✅</div><div class="msg">暂无待处理</div></div>';
     badge.style.display = 'none';
     return;
   }
   badge.textContent = list.length;
   badge.style.display = '';
-  el.innerHTML = list.map(r => \`
-    <div class="card risk-\${r.risk}" id="card-\${r.id}">
-      <div class="risk-label">\${riskLabel(r.risk)}</div>
-      <div class="desc">\${esc(r.description) || '（无描述）'}</div>
-      <div class="cmd">\${esc(r.command)}</div>
-      <div class="time">\${timeAgo(r.created_at)}</div>
-      <div class="btns">
-        <button class="btn btn-reject"  onclick="decide('\${r.id}','reject')">✗ 拒绝</button>
-        <button class="btn btn-approve" onclick="decide('\${r.id}','approve')">✓ 批准</button>
+
+  el.innerHTML = list.map(r => {
+    // 问题类型：显示对话界面
+    if (r.type === 'question') {
+      const messages = (r.messages || []).map(m => {
+        const cls = m.sender === 'claude' ? 'msg-claude' : 'msg-user';
+        const label = m.sender === 'claude' ? '🤖 Claude' : '📱 你';
+        return \`<div class="msg \${cls}"><div class="msg-label">\${label}</div><div class="msg-content">\${esc(m.content)}</div></div>\`;
+      }).join('');
+
+      return \`
+        <div class="card card-question" id="card-\${r.id}">
+          <div class="question-header">💬 Claude 提问</div>
+          <div class="messages">\${messages}</div>
+          <div class="reply-box">
+            <textarea id="reply-\${r.id}" class="reply-input" placeholder="输入你的回复..." rows="3"></textarea>
+            <button class="btn btn-reply" onclick="sendReply('\${r.id}')">发送</button>
+          </div>
+          <div class="time">\${timeAgo(r.created_at)}</div>
+        </div>
+      \`;
+    }
+
+    // 审批类型：显示原有界面
+    return \`
+      <div class="card risk-\${r.risk}" id="card-\${r.id}">
+        <div class="risk-label">\${riskLabel(r.risk)}</div>
+        <div class="desc">\${esc(r.description) || '（无描述）'}</div>
+        <div class="cmd">\${esc(r.command)}</div>
+        <div class="time">\${timeAgo(r.created_at)}</div>
+        <div class="btns">
+          <button class="btn btn-reject"  onclick="decide('\${r.id}','reject')">✗ 拒绝</button>
+          <button class="btn btn-approve" onclick="decide('\${r.id}','approve')">✓ 批准</button>
+        </div>
       </div>
-    </div>
-  \`).join('');
+    \`;
+  }).join('');
 }
 
 function renderHistory(list) {
@@ -814,16 +955,41 @@ function renderHistory(list) {
     el.innerHTML = '<div class="empty"><div class="icon">📋</div><div class="msg">暂无历史记录</div></div>';
     return;
   }
-  el.innerHTML = list.map(r => \`
-    <div class="card">
-      <div class="history-tag tag-\${r.status}">
-        \${r.status === 'approved' ? '✓ 已批准' : '✗ 已拒绝'}
+  el.innerHTML = list.map(r => {
+    // 状态标签
+    let statusTag = '';
+    if (r.type === 'question') {
+      statusTag = r.status === 'closed' ? '<div class="history-tag tag-closed">💬 已结束</div>' : '<div class="history-tag tag-replied">💬 已回复</div>';
+    } else {
+      statusTag = r.status === 'approved' ? '<div class="history-tag tag-approved">✓ 已批准</div>' : '<div class="history-tag tag-rejected">✗ 已拒绝</div>';
+    }
+
+    // 问题类型：显示对话历史
+    if (r.type === 'question' && r.messages && r.messages.length > 0) {
+      const messages = r.messages.map(m => {
+        const cls = m.sender === 'claude' ? 'msg-claude' : 'msg-user';
+        const label = m.sender === 'claude' ? '🤖 Claude' : '📱 你';
+        return \`<div class="msg \${cls}"><div class="msg-label">\${label}</div><div class="msg-content">\${esc(m.content)}</div></div>\`;
+      }).join('');
+      return \`
+        <div class="card card-question-history">
+          \${statusTag}
+          <div class="messages">\${messages}</div>
+          <div class="time">\${timeAgo(r.decided_at || r.created_at)}</div>
+        </div>
+      \`;
+    }
+
+    // 审批类型
+    return \`
+      <div class="card">
+        \${statusTag}
+        <div class="desc">\${esc(r.description) || '（无描述）'}</div>
+        <div class="cmd">\${esc(r.command)}</div>
+        <div class="time">\${timeAgo(r.decided_at || r.created_at)}</div>
       </div>
-      <div class="desc">\${esc(r.description) || '（无描述）'}</div>
-      <div class="cmd">\${esc(r.command)}</div>
-      <div class="time">\${timeAgo(r.decided_at || r.created_at)}</div>
-    </div>
-  \`).join('');
+    \`;
+  }).join('');
 }
 
 async function decide(id, action) {
@@ -849,6 +1015,41 @@ async function decide(id, action) {
   }
 }
 
+async function sendReply(id) {
+  const textarea = document.getElementById('reply-' + id);
+  if (!textarea) return;
+  const message = textarea.value.trim();
+  if (!message) {
+    showToast('请输入回复内容');
+    return;
+  }
+
+  const card = document.getElementById('card-' + id);
+  try {
+    const res = await fetch(API + '/api/reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ id, message }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 已发送');
+      textarea.value = '';
+      // 刷新列表显示新消息
+      if (card) {
+        const msgDiv = card.querySelector('.messages');
+        if (msgDiv) {
+          msgDiv.innerHTML += \`<div class="msg msg-user"><div class="msg-label">📱 你</div><div class="msg-content">\${esc(message)}</div></div>\`;
+        }
+      }
+    } else {
+      showToast('⚠️ ' + (data.error || '发送失败'));
+    }
+  } catch {
+    showToast('⚠️ 网络错误');
+  }
+}
+
 async function loadHistory() {
   try {
     const res = await fetch(API + '/api/completed', { headers: authHeaders() });
@@ -868,7 +1069,14 @@ function connectSSE() {
   sse.onmessage = (e) => {
     try {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'init' || msg.type === 'update') renderPending(msg.pending || []);
+      if (msg.type === 'init' || msg.type === 'update') {
+        // 如果用户正在输入框中打字，不要重新渲染（会丢失焦点和输入内容）
+        const activeEl = document.activeElement;
+        if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+          return;  // 跳过渲染
+        }
+        renderPending(msg.pending || []);
+      }
     } catch {}
   };
 }
@@ -891,6 +1099,11 @@ async function initApp() {
   loadTunnelInfo();
   // 自动刷新兜底
   setInterval(() => {
+    // 如果用户正在输入框中打字，不要重新渲染
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+      return;
+    }
     fetch(API + '/api/pending', { headers: authHeaders() })
       .then(r => r.json())
       .then(d => renderPending(d.pending || []))

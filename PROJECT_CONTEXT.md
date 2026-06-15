@@ -3,7 +3,7 @@
 ## 当前项目状态 (2026-06-15)
 
 ### ✅ 已完成功能
-- HTTP 审批服务器 (server.js, 1075行)
+- HTTP 审批服务器 (server.js)
 - 手机端暗色主题审批 UI (内嵌 HTML+CSS+JS)
 - ngrok 自动隧道 + 公网访问
 - 多通道推送: Server酱 / PushPlus / 邮件
@@ -11,8 +11,108 @@
 - 密码系统 (首次设置 + Token 鉴权)
 - SSE 实时推送 (WebSocket 替代方案)
 - approve.sh / approve.ps1 辅助脚本
+- **ask.sh 对话脚本 - Claude 提问，用户回复**
+- **多轮对话支持 - messages 数组记录完整对话历史**
+- **GBK 编码自动转换 - Windows curl 中文不乱码**
 - Windows .bat 启动 (ASCII 编码兼容)
-- 端到端测试验证通过 (2026-06-12)
+- 端到端测试验证通过
+
+---
+
+## 2026-06-15 Bug 修复
+
+### 🐛 输入框失去焦点 Bug
+
+#### 问题
+用户在对话输入框中打字时，输入框会突然退出/失去焦点。
+
+#### 原因
+SSE 推送和定时轮询每 1-5 秒触发 `renderPending()`，该函数用 `innerHTML` 完全重建 DOM，导致正在输入的 textarea 被替换。
+
+#### 修复
+在 SSE 和轮询的渲染调用前检查 `document.activeElement`：
+```javascript
+const activeEl = document.activeElement;
+if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+  return;  // 跳过渲染
+}
+```
+
+---
+
+## 2026-06-15 新增功能记录
+
+### 🆕 对话功能 (Chat Feature)
+
+#### 设计决策
+- 支持两种请求类型: `approval` (审批) 和 `question` (提问)
+- 提问类型显示文字输入框，而非批准/拒绝按钮
+- 支持多轮对话: 用户回复后问题保持 pending 状态，Claude 可追问
+- 对话历史存储在 `messages` 数组: `[{sender: 'claude', content: '...'}, {sender: 'user', content: '...'}]`
+
+#### 数据模型变更
+```javascript
+{
+  id: "abc123",
+  type: "approval" | "question",  // 新增
+  command: "...",                  // 审批=命令，提问=问题
+  description: "...",
+  risk: "normal",                  // 仅审批用
+  status: "pending" | "approved" | "rejected" | "replied" | "closed",  // 新增 replied, closed
+  conversationId: "xxx" | null,    // 新增：关联对话
+  messages: [{sender, content, time}] | null,  // 新增：对话历史
+  reply: "最后一条用户回复",        // 新增：兼容字段
+  created_at: "...",
+  decided_at: "..."
+}
+```
+
+#### API 变更
+- `POST /api/request` - 新增 `type` 字段支持
+- `POST /api/reply` - 新增：用户回复问题
+- `POST /api/close` - 新增：Claude 结束对话
+
+#### UI 变更
+- 问题类型卡片：显示对话气泡样式，底部文字输入框 + 发送按钮
+- 历史显示：对话类型显示完整消息历史
+
+#### ask.sh 用法
+```bash
+# 首次提问
+bash ask.sh "按钮用什么颜色？" "设计决策" 600
+
+# 输出: 用户回复的文字
+# 退出码: 0=收到回复, 2=超时
+
+# 追问（使用返回的对话ID）
+bash ask.sh "为什么选这个颜色？" "" 600 "对话ID"
+```
+
+#### 延迟测试
+- 用户回复 → Claude 收到: **~700ms**
+- 原因: ask.sh 每秒轮询 /api/check 一次
+- 评估: 可接受，无需优化
+
+---
+
+### 🆕 GBK 编码修复
+
+#### 问题
+Windows 的 Git Bash/curl 发送中文时使用 GBK 编码，服务器收到后存储为乱码。
+
+#### 修复方案
+在 `readBody()` 函数中：
+1. 收集原始 Buffer 而不是直接拼接字符串
+2. 用 `TextDecoder('utf-8', {fatal: true})` 验证是否为有效 UTF-8
+3. 如果验证失败，用 `TextDecoder('gbk')` 解码
+4. 日志记录：`[编码] 检测到 GBK 编码，已转换为 UTF-8`
+
+#### 测试结果
+- 中文命令: ✅ 正常显示
+- 中文描述: ✅ 正常显示
+- 中文回复: ✅ 正常显示
+
+---
 
 ## 2026-06-15 修复记录
 
