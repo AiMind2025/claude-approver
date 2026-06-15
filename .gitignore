@@ -1,0 +1,18 @@
+# Runtime data
+.data/
+
+# Config with secrets
+config.env
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Logs (keep LOG.md, ignore temp logs)
+*.log
+
+# Node
+node_modules/
+
+# Test artifacts
+test.zip
