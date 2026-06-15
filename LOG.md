@@ -36,10 +36,10 @@ pushes a notification to the user's phone, and waits for approval before executi
 - User requested: external network access + enhanced WeChat push
 - Major rewrite of server.js (1057 lines):
   - Auto-start ngrok tunnel for external access
-  - Multi-channel push: ServerChan, PushPlus, Bark, Telegram, Email
+  - Multi-channel push: ServerChan, PushPlus, Email
   - Push messages include direct approval links
   - First-visit password setup with token-based auth
-  - Telegram inline buttons (approve/reject directly in chat)
+  - Push messages include direct approval links
   - SSE real-time updates for mobile UI
 - Added: config.env template, install-ngrok.bat
 
@@ -124,8 +124,6 @@ D:\projects\claude-approver\
 |---------|---------|----------|-------|
 | ServerChan | SERVERCHAN_KEY | WeChat | Markdown support, recommended for CN |
 | PushPlus | PUSHPLUS_TOKEN | WeChat | Alternative to ServerChan |
-| Bark | BARK_URL | iOS | Native push, supports URL deep-link |
-| Telegram | TELEGRAM_BOT + TELEGRAM_CHAT | Cross-platform | Inline buttons for one-click approve |
 | Email | SMTP_* | Universal | Pure Node SMTP, no nodemailer needed |
 
 ---

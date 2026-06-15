@@ -3,7 +3,7 @@
  *
  * 功能:
  *   - 自动启动 ngrok 隧道，手机外网访问
- *   - 多通道推送: Server酱 / PushPlus / Bark / Telegram / 邮件
+ *   - 多通道推送: Server酱 / PushPlus / 邮件
  *   - 推送内容含公网审批链接，手机直接点
  *   - 首次访问设置密码，生成二维码
  *   - 公网访问全程鉴权
@@ -15,9 +15,6 @@
  *   NGROK_AUTHTOKEN   ngrok 认证 token
  *   SERVERCHAN_KEY    Server酱 SendKey
  *   PUSHPLUS_TOKEN    PushPlus Token
- *   BARK_URL          Bark 推送地址      https://api.day.app/你的key
- *   TELEGRAM_BOT      Telegram Bot Token
- *   TELEGRAM_CHAT     Telegram Chat ID
  *   SMTP_HOST         邮件 SMTP 服务器
  *   SMTP_PORT         SMTP 端口         默认 465
  *   SMTP_USER         发件人
@@ -44,9 +41,6 @@ const TUNNEL   = (process.env.TUNNEL || 'ngrok').toLowerCase();
 const PUSH = {
   serverchan:  process.env.SERVERCHAN_KEY  || '',
   pushplus:    process.env.PUSHPLUS_TOKEN  || '',
-  bark:        process.env.BARK_URL        || '',
-  tgBot:       process.env.TELEGRAM_BOT    || '',
-  tgChat:      process.env.TELEGRAM_CHAT   || '',
   smtpHost:    process.env.SMTP_HOST       || '',
   smtpPort:    parseInt(process.env.SMTP_PORT || '465', 10),
   smtpUser:    process.env.SMTP_USER       || '',
@@ -180,45 +174,7 @@ async function pushNotify(title, desp, reqId) {
     );
   }
 
-  // 3. Bark (iOS)
-  if (PUSH.bark) {
-    const barkBody = JSON.stringify({
-      title,
-      body: desp.replace(/\n/g, ' ').slice(0, 200),
-      url: approveURL || getDashboardURL(),
-      group: 'Claude审批',
-      sound: 'alert.caf',
-    });
-    tasks.push(
-      httpRequest(`${PUSH.bark.replace(/\/$/, '')}/${encodeURIComponent(title)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: barkBody,
-      }).then(r => console.log('[Bark]', r.status)).catch(e => console.error('[Bark]', e.message))
-    );
-  }
-
-  // 4. Telegram
-  if (PUSH.tgBot && PUSH.tgChat) {
-    const tgText = `*${title}*\n\n${desp}${approveURL ? `\n[点击审批](${approveURL})` : ''}`;
-    tasks.push(
-      httpRequest(`https://api.telegram.org/bot${PUSH.tgBot}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: PUSH.tgChat,
-          text: tgText,
-          parse_mode: 'Markdown',
-          reply_markup: approveURL ? {
-            inline_keyboard: [[{ text: '✅ 批准', url: approveURL + '&do=approve' },
-                               { text: '❌ 拒绝', url: approveURL + '&do=reject' }]]
-          } : undefined,
-        }),
-      }).then(r => console.log('[Telegram]', r.status)).catch(e => console.error('[Telegram]', e.message))
-    );
-  }
-
-  // 5. Email
+  // 3. Email
   if (PUSH.smtpHost && PUSH.smtpUser && PUSH.smtpTo) {
     tasks.push(sendEmail(title, fullDesp).catch(e => console.error('[Email]', e.message)));
   }
@@ -1032,14 +988,12 @@ async function main() {
   const channels = [];
   if (PUSH.serverchan) channels.push('✅ Server酱 (微信)');
   if (PUSH.pushplus)   channels.push('✅ PushPlus (微信)');
-  if (PUSH.bark)       channels.push('✅ Bark (iOS)');
-  if (PUSH.tgBot)      channels.push('✅ Telegram');
   if (PUSH.smtpHost)   channels.push('✅ 邮件');
   if (channels.length) {
     channels.forEach(c => console.log('  ' + c));
   } else {
     console.log('  ⚠️  未配置推送，仅本地/公网页面可用');
-    console.log('  设置 SERVERCHAN_KEY / PUSHPLUS_TOKEN / BARK_URL 等启用推送');
+    console.log('  设置 SERVERCHAN_KEY / PUSHPLUS_TOKEN 等启用推送');
   }
   console.log('');
 

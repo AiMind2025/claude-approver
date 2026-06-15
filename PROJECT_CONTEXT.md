@@ -6,7 +6,7 @@
 - HTTP 审批服务器 (server.js, 1075行)
 - 手机端暗色主题审批 UI (内嵌 HTML+CSS+JS)
 - ngrok 自动隧道 + 公网访问
-- 多通道推送: Server酱 / PushPlus / Bark / Telegram / 邮件
+- 多通道推送: Server酱 / PushPlus / 邮件
 - 推送消息含审批直链 (一键 approve/reject)
 - 密码系统 (首次设置 + Token 鉴权)
 - SSE 实时推送 (WebSocket 替代方案)
@@ -164,9 +164,7 @@ REQUEST_ID=$(echo "$RESPONSE" | node -e "
 
 ### 如果继续发展可以考虑的方向
 1. **Cloudflare Tunnel 支持**: 比 ngrok 更稳定的免费方案
-2. **Telegram Bot Webhook**: 直接在 TG 里用 Inline Button 审批，
-   不需要跳转网页（当前已有 inline_keyboard，但点击后还是跳 URL）
-3. **审批备注**: 手机上审批时能附注原因
+2. **审批备注**: 手机上审批时能附注原因
 4. **自动超时**: 超时后自动拒绝，避免 Claude 一直等
 5. **多 Claude 实例**: 支持多台电脑共用一个审批服务器
 
