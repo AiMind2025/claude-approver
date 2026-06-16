@@ -30,6 +30,14 @@ const path  = require('path');
 const url   = require('url');
 const { execSync, spawn } = require('child_process');
 
+// ─── 日志输出控制 ──────────────────────────────────────────────────────────────
+// MCP 模式下日志输出到 stderr，独立运行时输出到 stdout
+const isMCPMode = process.env.MCP_MODE === '1';
+const logTarget = isMCPMode ? process.stderr : process.stdout;
+function log(...args) {
+  logTarget.write(args.join(' ') + '\n');
+}
+
 // ─── 配置 ────────────────────────────────────────────────────────────────────
 const PORT     = parseInt(process.env.PORT || '8765', 10);
 const DATA_DIR = path.join(__dirname, '.data');
@@ -105,7 +113,7 @@ function readBody(req) {
         try {
           const gbkDecoder = new TextDecoder('gbk');
           body = gbkDecoder.decode(buf);
-          console.log('[编码] 检测到 GBK 编码，已转换为 UTF-8');
+          log('[编码] 检测到 GBK 编码，已转换为 UTF-8');
         } catch {
           // GBK 也失败，用原始 UTF-8（可能有乱码）
           body = buf.toString('utf8');
@@ -182,7 +190,7 @@ async function pushNotify(title, desp, reqId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `title=${encodeURIComponent(title)}&desp=${encodeURIComponent(fullDesp)}`,
-      }).then(r => console.log('[Server酱]', r.status)).catch(e => console.error('[Server酱]', e.message))
+      }).then(r => log('[Server酱]', r.status)).catch(e => console.error('[Server酱]', e.message))
     );
   }
 
@@ -193,7 +201,7 @@ async function pushNotify(title, desp, reqId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: PUSH.pushplus, title, content: fullDesp, template: 'markdown' }),
-      }).then(r => console.log('[PushPlus]', r.status)).catch(e => console.error('[PushPlus]', e.message))
+      }).then(r => log('[PushPlus]', r.status)).catch(e => console.error('[PushPlus]', e.message))
     );
   }
 
@@ -203,7 +211,7 @@ async function pushNotify(title, desp, reqId) {
   }
 
   if (tasks.length === 0) {
-    console.log('[推送] ⚠️ 未配置任何推送通道，仅本地可用');
+    log('[推送] ⚠️ 未配置任何推送通道，仅本地可用');
   }
 
   await Promise.allSettled(tasks);
@@ -288,7 +296,7 @@ function sendEmail(subject, body) {
         case 9:
           send('QUIT');
           client.end();
-          console.log('[Email] ✅ 发送成功');
+          log('[Email] ✅ 发送成功');
           resolve();
           break;
       }
@@ -332,7 +340,7 @@ function createRequest({ command, description, risk, type, conversationId }) {
   }
 
   pushNotify(title, desp, req.id);
-  console.log(`[新请求] ${req.id} (${reqType}): ${(command || '').slice(0, 60)}`);
+  log(`[新请求] ${req.id} (${reqType}): ${(command || '').slice(0, 60)}`);
   return req;
 }
 
@@ -346,7 +354,7 @@ function decideRequest(id, decision) {
   store.pending.splice(idx, 1);
   if (store.completed.length > 200) store.completed.length = 200;
   saveJSON(DATA_FILE, store);
-  console.log(`[审批] ${req.id} → ${decision}`);
+  log(`[审批] ${req.id} → ${decision}`);
   return req;
 }
 
@@ -366,7 +374,7 @@ function replyRequest(id, message) {
   // 但更新状态让 Claude 知道有新回复
   req.status = 'replied';
   saveJSON(DATA_FILE, store);
-  console.log(`[回复] ${req.id}: ${(message || '').slice(0, 50)}`);
+  log(`[回复] ${req.id}: ${(message || '').slice(0, 50)}`);
   return req;
 }
 
@@ -390,7 +398,7 @@ function closeConversation(id) {
   store.pending.splice(idx, 1);
   if (store.completed.length > 200) store.completed.length = 200;
   saveJSON(DATA_FILE, store);
-  console.log(`[对话结束] ${req.id}`);
+  log(`[对话结束] ${req.id}`);
   return req;
 }
 
@@ -465,7 +473,7 @@ const apiRoutes = {
     if (pwd.length < 4) return json(res, 400, { error: '密码至少4位' });
     authToken = pwd;
     saveJSON(AUTH_FILE, { token: authToken, created: now() });
-    console.log('[安全] ✅ 密码已设置');
+    log('[安全] ✅ 密码已设置');
     json(res, 200, { ok: true, token: authToken, url: getDashboardURL() });
   },
 
@@ -534,24 +542,24 @@ async function startNgrok() {
   }
 
   if (!ngrokPath || !fs.existsSync(ngrokPath)) {
-    console.log('[ngrok] Not found. Install:');
-    console.log('   1. Run: install-ngrok.bat');
-    console.log('   2. Or download: https://ngrok.com/download');
-    console.log('   3. Or set TUNNEL=none to skip');
-    console.log('');
+    log('[ngrok] Not found. Install:');
+    log('   1. Run: install-ngrok.bat');
+    log('   2. Or download: https://ngrok.com/download');
+    log('   3. Or set TUNNEL=none to skip');
+    log('');
     return;
   }
 
-  console.log(`[ngrok] Found: ${ngrokPath}`);
+  log(`[ngrok] Found: ${ngrokPath}`);
 
   // 设置 authtoken
   if (process.env.NGROK_AUTHTOKEN) {
     try {
       execSync(`"${ngrokPath}" config add-authtoken ${process.env.NGROK_AUTHTOKEN}`,
         { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] });
-      console.log('[ngrok] authtoken configured');
+      log('[ngrok] authtoken configured');
     } catch (e) {
-      console.log('[ngrok] authtoken failed:', e.message);
+      log('[ngrok] authtoken failed:', e.message);
     }
   }
 
@@ -572,10 +580,10 @@ async function startNgrok() {
       try {
         const log = JSON.parse(line);
         if (log.msg && log.msg.includes('starting web service')) {
-          console.log('[ngrok] 隧道已建立');
+          log('[ngrok] 隧道已建立');
         }
         if (log.addr) {
-          console.log(`[ngrok] ${log.addr}`);
+          log(`[ngrok] ${log.addr}`);
         }
       } catch {}
     }
@@ -586,7 +594,7 @@ async function startNgrok() {
   });
 
   ngrokProc.on('exit', (code) => {
-    console.log(`[ngrok] 进程退出 (code=${code})`);
+    log(`[ngrok] 进程退出 (code=${code})`);
     tunnelURL = '';
   });
 
@@ -599,12 +607,12 @@ async function startNgrok() {
       const tunnel = (data.tunnels || []).find(t => t.proto === 'https');
       if (tunnel && tunnel.public_url) {
         tunnelURL = tunnel.public_url;
-        console.log(`[ngrok] ✅ 公网地址: ${tunnelURL}`);
+        log(`[ngrok] ✅ 公网地址: ${tunnelURL}`);
         return;
       }
     } catch {}
   }
-  console.log('[ngrok] ⚠️ 20秒内未获取到公网地址，请检查 ngrok 状态');
+  log('[ngrok] ⚠️ 20秒内未获取到公网地址，请检查 ngrok 状态');
 }
 
 function stopNgrok() {
@@ -617,7 +625,7 @@ function stopNgrok() {
 // ─── 生成简易二维码 (文本版，用于终端显示) ──────────────────────────────────
 function generateQR(text) {
   try {
-    return execSync(`node -e "console.log(require('url').parse('${text}').href)"`, { encoding: 'utf8' }).trim();
+    return execSync(`node -e "log(require('url').parse('${text}').href)"`, { encoding: 'utf8' }).trim();
   } catch { return text; }
 }
 
@@ -673,6 +681,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans S
 .risk-warning .risk-label{color:#f39c12}
 .risk-normal .risk-label{color:#27ae60}
 .desc{font-size:14px;color:#ccc;margin-bottom:10px;line-height:1.4}
+.desc-options{background:#1a1a1a;border-radius:8px;padding:12px 14px;margin-bottom:14px;white-space:pre-line;font-size:14px;line-height:1.6;color:#a8e6cf}
 .cmd{background:#0d0d1a;border-radius:8px;padding:10px 12px;
   font-family:"Fira Code",Menlo,Consolas,monospace;font-size:12px;color:#a0e0a0;
   white-space:pre-wrap;word-break:break-all;margin-bottom:12px;max-height:120px;
@@ -920,9 +929,13 @@ function renderPending(list) {
         return \`<div class="msg \${cls}"><div class="msg-label">\${label}</div><div class="msg-content">\${esc(m.content)}</div></div>\`;
       }).join('');
 
+      // 显示描述/选项（如果有）
+      const descHtml = r.description ? \`<div class="desc desc-options">\${esc(r.description).replace(/\\n/g, '<br>')}</div>\` : '';
+
       return \`
         <div class="card card-question" id="card-\${r.id}">
           <div class="question-header">💬 Claude 提问</div>
+          \${descHtml}
           <div class="messages">\${messages}</div>
           <div class="reply-box">
             <textarea id="reply-\${r.id}" class="reply-input" placeholder="输入你的回复..." rows="3"></textarea>
@@ -1172,15 +1185,15 @@ const server = http.createServer(async (req, res) => {
 
 // ─── 启动 ─────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('');
-  console.log('╔══════════════════════════════════════════════════════╗');
-  console.log('║          🤖 Claude 手机审批服务器 (增强版)         ║');
-  console.log('╚══════════════════════════════════════════════════════╝');
-  console.log('');
+  log('');
+  log('╔══════════════════════════════════════════════════════╗');
+  log('║          🤖 Claude 手机审批服务器 (增强版)         ║');
+  log('╚══════════════════════════════════════════════════════╝');
+  log('');
 
   // 启动 HTTP 服务
   await new Promise(resolve => server.listen(PORT, '0.0.0.0', resolve));
-  console.log(`✅ HTTP 服务: http://localhost:${PORT}`);
+  log(`✅ HTTP 服务: http://localhost:${PORT}`);
 
   // 启动隧道
   if (TUNNEL !== 'none') {
@@ -1188,43 +1201,43 @@ async function main() {
   }
 
   // 打印汇总信息
-  console.log('');
-  console.log('─── 访问地址 ───────────────────────────');
-  console.log(`  本地: http://localhost:${PORT}`);
+  log('');
+  log('─── 访问地址 ───────────────────────────');
+  log(`  本地: http://localhost:${PORT}`);
   if (tunnelURL) {
     const tokenSuffix = authToken ? `?token=${authToken}` : '';
-    console.log(`  公网: ${tunnelURL}${tokenSuffix}`);
+    log(`  公网: ${tunnelURL}${tokenSuffix}`);
   }
-  console.log('');
+  log('');
 
-  console.log('─── 推送通道 ───────────────────────────');
+  log('─── 推送通道 ───────────────────────────');
   const channels = [];
   if (PUSH.serverchan) channels.push('✅ Server酱 (微信)');
   if (PUSH.pushplus)   channels.push('✅ PushPlus (微信)');
   if (PUSH.smtpHost)   channels.push('✅ 邮件');
   if (channels.length) {
-    channels.forEach(c => console.log('  ' + c));
+    channels.forEach(c => log('  ' + c));
   } else {
-    console.log('  ⚠️  未配置推送，仅本地/公网页面可用');
-    console.log('  设置 SERVERCHAN_KEY / PUSHPLUS_TOKEN 等启用推送');
+    log('  ⚠️  未配置推送，仅本地/公网页面可用');
+    log('  设置 SERVERCHAN_KEY / PUSHPLUS_TOKEN 等启用推送');
   }
-  console.log('');
+  log('');
 
-  console.log('─── 安全 ───────────────────────────────');
+  log('─── 安全 ───────────────────────────────');
   if (authToken) {
-    console.log(`  🔐 密码已设置 (${authToken.slice(0,2)}***)`);
+    log(`  🔐 密码已设置 (${authToken.slice(0,2)}***)`);
   } else {
-    console.log('  🔓 首次访问网页时将要求设置密码');
+    log('  🔓 首次访问网页时将要求设置密码');
   }
-  console.log('');
+  log('');
 
-  console.log('按 Ctrl+C 停止服务器');
-  console.log('');
+  log('按 Ctrl+C 停止服务器');
+  log('');
 }
 
 // 优雅退出
 process.on('SIGINT', () => {
-  console.log('\n正在关闭...');
+  log('\n正在关闭...');
   stopNgrok();
   server.close();
   process.exit(0);
@@ -1235,7 +1248,45 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-main().catch(e => {
-  console.error('启动失败:', e);
-  process.exit(1);
-});
+// ─── 模块导出 (供 MCP Server 使用) ─────────────────────────────────────────────
+// 只在直接运行时启动，被 require 时不自动启动
+if (require.main === module) {
+  main().catch(e => {
+    console.error('启动失败:', e);
+    process.exit(1);
+  });
+}
+
+// 导出核心函数供外部使用
+module.exports = {
+  // 审批/对话逻辑
+  createRequest,
+  decideRequest,
+  replyRequest,
+  closeConversation,
+
+  // 数据存储
+  store,
+  saveJSON,
+  loadJSON,
+
+  // 服务器
+  server,
+  main,
+  startNgrok,
+  stopNgrok,
+
+  // 配置
+  PORT,
+  TUNNEL,
+  PUSH,
+
+  // 状态
+  getTunnelURL: () => tunnelURL,
+  getAuthToken: () => authToken,
+  setAuthToken: (token) => { authToken = token; },
+
+  // 工具函数
+  uid,
+  now,
+};

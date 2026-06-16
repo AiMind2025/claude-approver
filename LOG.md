@@ -51,6 +51,19 @@ pushes a notification to the user's phone, and waits for approval before executi
 - Fix: Rewrote all .bat and .env files with pure ASCII text
 - server.js keeps Chinese (Node.js handles UTF-8 natively)
 
+### Phase 6: MCP Server Implementation (2026-06-15)
+- Added MCP (Model Context Protocol) support for Claude Code integration
+- Created `mcp-server.js` with 5 tools:
+  - `request_approval` - Request user approval for operations
+  - `ask_question` - Ask user questions, wait for reply
+  - `check_status` - Check request status (non-blocking)
+  - `close_conversation` - End a conversation
+  - `get_server_info` - Get server status info
+- Fixed EADDRINUSE issue: auto-kill old process on startup
+- Added conversation/dialog support with multi-turn messaging
+- Created `CLAUDE.md` to guide Claude to use MCP tools properly
+- Fixed mobile UI to show options in question type (description field)
+
 ---
 
 ## 3. Architecture Decisions
@@ -148,6 +161,30 @@ D:\projects\claude-approver\
 ### P3: config.env Chinese comments parsed as commands
 - **Issue**: Even comment lines in config.env caused errors when loaded via `for /f`
 - **Fix**: All comments in config.env must be ASCII
+
+### P4: MCP Server EADDRINUSE error (2026-06-15)
+- **Issue**: MCP Server failed to start with `Error: listen EADDRINUSE: address already in use 0.0.0.0:8765`
+- **Cause**: Previous server process was still running on port 8765
+- **Fix**: Added `killPortOccupant()` function in `mcp-server.js` that auto-kills old process before starting
+- **Code**: Uses `netstat` + `taskkill` on Windows, `lsof` + `kill` on Linux
+
+### P5: Claude not using MCP tools (2026-06-15)
+- **Issue**: Claude responded directly in terminal instead of using MCP tools
+- **Cause**: No CLAUDE.md instructions telling Claude to use MCP
+- **Fix**: Created CLAUDE.md with clear instructions:
+  - Use `ask_question` for all questions
+  - Use `request_approval` for all operations (including Web Search)
+
+### P6: Mobile UI not showing options (2026-06-15)
+- **Issue**: `ask_question` with context/options only showed question, not options
+- **Cause**: `renderPending()` only rendered `messages` for question type, not `description`
+- **Fix**: Added `descHtml` to render description field with `.desc-options` CSS style (green background)
+
+### P7: Web Search not going through phone approval (2026-06-15)
+- **Issue**: Web Search showed Claude Code's built-in confirmation, not phone approval
+- **Cause**: Claude Code's internal permission system is separate from MCP
+- **Fix**: Updated CLAUDE.md to explicitly list all operations requiring `request_approval`:
+  - Web Search, command execution, file operations, network requests, package installation
 
 ---
 

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "approver": {
+      "command": "node",
+      "args": ["D:/projects/claude-approver/mcp-server.js"],
+      "env": {
+        "PORT": "8765",
+        "TUNNEL": "ngrok",
+        "NGROK_AUTHTOKEN": "你的ngrok_token",
+        "SERVERCHAN_KEY": "你的server酱key"
+      }
+    }
+  }
+}

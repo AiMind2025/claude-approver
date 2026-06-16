@@ -1,298 +1,168 @@
-# PROJECT_CONTEXT.md - 思考记录与决策上下文
+# PROJECT_CONTEXT.md - 项目决策与进展记录
 
-## 当前项目状态 (2026-06-15)
+## 最新状态 (2026-06-15)
 
 ### ✅ 已完成功能
-- HTTP 审批服务器 (server.js)
-- 手机端暗色主题审批 UI (内嵌 HTML+CSS+JS)
-- ngrok 自动隧道 + 公网访问
-- 多通道推送: Server酱 / PushPlus / 邮件
-- 推送消息含审批直链 (一键 approve/reject)
-- 密码系统 (首次设置 + Token 鉴权)
-- SSE 实时推送 (WebSocket 替代方案)
-- approve.sh / approve.ps1 辅助脚本
-- **ask.sh 对话脚本 - Claude 提问，用户回复**
-- **多轮对话支持 - messages 数组记录完整对话历史**
-- **GBK 编码自动转换 - Windows curl 中文不乱码**
-- Windows .bat 启动 (ASCII 编码兼容)
-- 端到端测试验证通过
+
+1. **MCP Server 完整实现**
+   - 5 个 MCP 工具：request_approval, ask_question, check_status, close_conversation, get_server_info
+   - Claude Code 启动时自动加载
+   - 支持审批和对话功能
+
+2. **端口冲突自动修复**
+   - 新增 `killPortOccupant()` 函数
+   - MCP Server 启动时自动杀掉占用端口的旧进程
+
+3. **手机端显示优化**
+   - 问题类型现在显示 `description` 字段（选项列表）
+   - 绿色背景样式突出选项
+
+4. **CLAUDE.md 完善**
+   - 明确告知 Claude 所有交互必须通过手机
+   - 所有操作（包括 Web Search）需要先 `request_approval`
+   - 带选项的问题使用 `ask_question` 的 `context` 字段
 
 ---
 
-## 2026-06-15 Bug 修复
+## 本次会话解决的问题
 
-### 🐛 输入框失去焦点 Bug
+### 问题 1: MCP Server 启动失败 (EADDRINUSE)
 
-#### 问题
-用户在对话输入框中打字时，输入框会突然退出/失去焦点。
+**现象**：MCP Server 启动时报 `Error: listen EADDRINUSE: address already in use 0.0.0.0:8765`
 
-#### 原因
-SSE 推送和定时轮询每 1-5 秒触发 `renderPending()`，该函数用 `innerHTML` 完全重建 DOM，导致正在输入的 textarea 被替换。
+**原因**：之前手动启动的服务器进程还在运行，端口被占用
 
-#### 修复
-在 SSE 和轮询的渲染调用前检查 `document.activeElement`：
+**解决方案**：在 `mcp-server.js` 中添加 `killPortOccupant()` 函数
 ```javascript
-const activeEl = document.activeElement;
-if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
-  return;  // 跳过渲染
+async function killPortOccupant(port) {
+  // Windows: netstat + taskkill
+  // Linux: lsof + kill
 }
 ```
 
+**修改文件**：`mcp-server.js`
+
 ---
 
-## 2026-06-15 新增功能记录
+### 问题 2: Claude 没有使用 MCP 工具
 
-### 🆕 对话功能 (Chat Feature)
+**现象**：用户说"问我今天想吃什么"，Claude 直接在终端回复，没有调用 MCP
 
-#### 设计决策
-- 支持两种请求类型: `approval` (审批) 和 `question` (提问)
-- 提问类型显示文字输入框，而非批准/拒绝按钮
-- 支持多轮对话: 用户回复后问题保持 pending 状态，Claude 可追问
-- 对话历史存储在 `messages` 数组: `[{sender: 'claude', content: '...'}, {sender: 'user', content: '...'}]`
+**原因**：没有 CLAUDE.md 告诉 Claude 使用 MCP 工具
 
-#### 数据模型变更
-```javascript
-{
-  id: "abc123",
-  type: "approval" | "question",  // 新增
-  command: "...",                  // 审批=命令，提问=问题
-  description: "...",
-  risk: "normal",                  // 仅审批用
-  status: "pending" | "approved" | "rejected" | "replied" | "closed",  // 新增 replied, closed
-  conversationId: "xxx" | null,    // 新增：关联对话
-  messages: [{sender, content, time}] | null,  // 新增：对话历史
-  reply: "最后一条用户回复",        // 新增：兼容字段
-  created_at: "...",
-  decided_at: "..."
-}
+**解决方案**：创建 `CLAUDE.md`，明确指示：
+- 所有问题用 `ask_question`
+- 所有操作前用 `request_approval`
+
+---
+
+### 问题 3: 手机端看不到选项
+
+**现象**：Claude 调用 `ask_question` 时，`context` 里有选项列表，但手机端只显示问题
+
+**原因**：`renderPending()` 函数中，问题类型只渲染了 `messages`，没有渲染 `description`
+
+**解决方案**：
+1. 添加 `descHtml` 渲染 `description` 字段
+2. 添加 `.desc-options` CSS 样式（绿色背景）
+
+**修改文件**：`server.js` 第 932-942 行
+
+---
+
+### 问题 4: Web Search 没有走手机审批
+
+**现象**：Claude 执行 Web Search 时，Claude Code 内部弹出确认框，但没有发到手机
+
+**原因**：Claude Code 的内置权限系统和 MCP 审批是分开的
+
+**解决方案**：在 CLAUDE.md 中明确列出所有需要审批的操作类型：
+- Web Search
+- 执行命令
+- 读写文件
+- 网络请求
+- 安装软件
+
+---
+
+## 架构说明
+
 ```
-
-#### API 变更
-- `POST /api/request` - 新增 `type` 字段支持
-- `POST /api/reply` - 新增：用户回复问题
-- `POST /api/close` - 新增：Claude 结束对话
-
-#### UI 变更
-- 问题类型卡片：显示对话气泡样式，底部文字输入框 + 发送按钮
-- 历史显示：对话类型显示完整消息历史
-
-#### ask.sh 用法
-```bash
-# 首次提问
-bash ask.sh "按钮用什么颜色？" "设计决策" 600
-
-# 输出: 用户回复的文字
-# 退出码: 0=收到回复, 2=超时
-
-# 追问（使用返回的对话ID）
-bash ask.sh "为什么选这个颜色？" "" 600 "对话ID"
-```
-
-#### 延迟测试
-- 用户回复 → Claude 收到: **~700ms**
-- 原因: ask.sh 每秒轮询 /api/check 一次
-- 评估: 可接受，无需优化
-
----
-
-### 🆕 GBK 编码修复
-
-#### 问题
-Windows 的 Git Bash/curl 发送中文时使用 GBK 编码，服务器收到后存储为乱码。
-
-#### 修复方案
-在 `readBody()` 函数中：
-1. 收集原始 Buffer 而不是直接拼接字符串
-2. 用 `TextDecoder('utf-8', {fatal: true})` 验证是否为有效 UTF-8
-3. 如果验证失败，用 `TextDecoder('gbk')` 解码
-4. 日志记录：`[编码] 检测到 GBK 编码，已转换为 UTF-8`
-
-#### 测试结果
-- 中文命令: ✅ 正常显示
-- 中文描述: ✅ 正常显示
-- 中文回复: ✅ 正常显示
-
----
-
-## 2026-06-15 修复记录
-
-### 已修复
-
-#### ✅ approve.sh 嵌套引号 Bug
-- **现象**: `$(curl ... -d "$(jq ...)")"` 嵌套 `$()` 导致 `unexpected EOF`
-- **修复**: 分两步写，先 `JSON_BODY=$(jq ...)` 再 `curl ... -d "$JSON_BODY"`
-
-#### ✅ approve.sh 缺少 Token 传递
-- **现象**: 设置密码后 approve.sh 发请求返回 `{"error":"未授权"}`
-- **修复**: 自动从 `AUTH_TOKEN` 环境变量 或 `.data/auth.json` 读取 token
-- **实现**: 用 bash 数组 `AUTH_ARGS=()` 动态传递 `-H "Authorization: Bearer ..."`
-
-#### ✅ test.sh approve.sh 集成测试
-- **修复**: 测试前 `export AUTH_TOKEN="$TOKEN"` 让 approve.sh 能获取到 token
-
-### 当前测试结果: 16/16 ✅
-
-| 测试项 | 状态 |
-|--------|------|
-| 健康检查 | ✅ |
-| 密码设置/登录 | ✅ |
-| 鉴权保护 | ✅ |
-| 创建普通请求 | ✅ |
-| 创建危险请求 | ✅ |
-| 待审批列表 | ✅ |
-| 查询状态 | ✅ |
-| 批准请求 | ✅ |
-| 拒绝请求 | ✅ |
-| 历史记录 | ✅ |
-| 隧道信息 | ✅ |
-| approve.sh 集成 | ✅ |
-
----
-
-## 仍待修复的问题
-
-### 问题 1: approve/reject API 缺少鉴权检查 (严重)
-
-**现象**: `/api/approve` 和 `/api/reject` 端点不验证 `Authorization` header
-**影响**: 任何人只要知道请求 ID（8位 hex），就能审批/拒绝
-**根因**: 代码中 `POST /api/approve` 和 `POST /api/reject` handler 没有调用 `checkAuth(req)`
-
-**修复方案**:
-```javascript
-// server.js 第 381-393 行
-'POST /api/approve': async (req, res) => {
-  if (!checkAuth(req)) return json(res, 401, { error: '未授权' });  // ← 加上这行
-  ...
-}
-'POST /api/reject': async (req, res) => {
-  if (!checkAuth(req)) return json(res, 401, { error: '未授权' });  // ← 加上这行
-  ...
-}
-```
-
-**思考**: URL 一键审批（推送链接点击）也需要鉴权，但 token 已经在 URL 里了，
-所以 `checkAuth()` 会自动从 `?token=` 参数读取，不冲突。
-
----
-
-## 问题 2: URL 自动审批 (do=approve/reject) 未验证 auth (严重)
-
-**现象**: HTML 页面中 JS 读取 URL 参数 `action`, `id`, `do`, 直接调用 decide()
-**影响**: 如果推送链接被第三方获取，打开页面就自动执行审批，无需密码
-**根因**: decide() 函数内部通过 `authHeaders()` 加了 token，但如果 URL 里没带 token，
-且浏览器 sessionStorage 里也没有 token，请求会被 401 拒绝——
-**但前提是 approve/reject API 要加上鉴权才行（见问题 1）**
-
-**完整修复链**:
-1. 后端加上 checkAuth → URL 里必须带 token 才能操作
-2. 前端 decide() 已经有 authHeaders，会自动带上 TOKEN
-3. 推送链接已包含 token 参数，正常流程不受影响
-
----
-
-## 问题 3: SMTP 邮件发送逻辑有 Bug (中等)
-
-**现象**: sendEmail() 函数中 STARTTLS 升级后的状态机混乱
-**根因**: case 2 中同时执行了两个 step 操作:
-```javascript
-case 2:
-  client = tls.connect({ socket: client, ... });
-  send('EHLO localhost');   // ← 在 TLS 握手完成前就发了
-  step = 3;
-  send('AUTH LOGIN');       // ← 紧接着又发了
-```
-**问题**:
-- TLS 握手需要时间，不能在 connect 后立刻发数据
-- 连续发两个命令，第一个的响应会被第二个的逻辑处理
-
-**修复思路**:
-```javascript
-case 2: // STARTTLS 升级
-  const tlsSocket = tls.connect({ socket: client, rejectUnauthorized: false });
-  client = tlsSocket;
-  // 重新绑定 data handler 到新 socket
-  tlsSocket.on('data', onData);
-  tlsSocket.on('secureConnect', () => {
-    send('EHLO localhost');  // 等 secureConnect 后再发
-  });
-  break;
-```
-但这个改动比较大，需要重构为事件驱动模式。当前 SMTP 功能可能没人实际使用，
-优先级不高。
-
----
-
-## 问题 4: approve.sh 依赖 jq (低)
-
-**现象**: approve.sh 用 `jq` 解析 JSON，但 Windows 上 jq 不是自带的
-**影响**: 用户需要先安装 jq
-**替代方案**: 改用 Node.js 或 Python 做 JSON 解析，或改成纯 curl + grep
-```bash
-# 不用 jq，用 node 解析
-REQUEST_ID=$(echo "$RESPONSE" | node -e "
-  let d=''; process.stdin.on('data',c=>d+=c);
-  process.stdin.on('end',()=>console.log(JSON.parse(d).request.id))
-")
+┌─────────────────┐
+│   Claude Code   │
+│  (MCP Client)   │
+└────────┬────────┘
+         │ stdio (JSON-RPC)
+         ▼
+┌─────────────────┐      ┌──────────────────┐
+│  mcp-server.js  │──────│    server.js     │
+│  (MCP 协议层)    │      │  (HTTP 服务器)    │
+└─────────────────┘      └────────┬─────────┘
+                                  │
+                    ┌─────────────┼─────────────┐
+                    ▼             ▼             ▼
+              ┌──────────┐  ┌──────────┐  ┌──────────┐
+              │  ngrok   │  │ Server酱  │  │  .data/  │
+              │  (隧道)   │  │ (微信推送) │  │ (持久化)  │
+              └──────────┘  └──────────┘  └──────────┘
 ```
 
 ---
 
-## 问题 5: generateQR 函数无实际功能 (低)
+## 测试用例总结
 
-**现象**: server.js 第 566-570 行定义了 generateQR()，但从未被调用
-**内容**: 只是执行了一个 `url.parse()` 然后返回原字符串，并没有生成二维码
-**思考**: 可能是预留的功能，想打印二维码到终端方便手机扫码
-**建议**: 要么删除这段死代码，要么实现真正的终端二维码
-（可用 `qrcode-terminal` npm 包，或纯 JS 实现）
+### 审批测试
+- ✅ 普通审批 (npm install)
+- ✅ 警告级别 (重启数据库)
+- ✅ 危险操作 (删除文件)
+- ✅ 拒绝操作
 
----
+### 提问测试
+- ✅ 简单问题
+- ✅ 带选项的问题（选项显示在绿色区域）
+- ✅ 多轮对话
 
-## 架构层面的思考
-
-### 当前架构的优势
-1. **零依赖**: 只有 Node.js 标准库，部署极简
-2. **单文件**: server.js 包含一切，方便分发
-3. **文件存储**: 单用户场景足够，无需数据库
-
-### 潜在问题
-1. **并发写入**: requests.json 的读写没有加锁，高频调用可能丢数据
-   - 但实际场景：一个人用手机审批，频率极低，不是问题
-2. **Token 明文存储**: auth.json 里直接存了明文密码
-   - 单用户个人工具，可接受；但如果要改进可以用 crypto.createHash
-3. **HTML 内嵌**: 前端代码全在 JS 字符串里，不便维护
-   - 但单文件分发的优势更大，trade-off 合理
-
-### 如果继续发展可以考虑的方向
-1. **Cloudflare Tunnel 支持**: 比 ngrok 更稳定的免费方案
-2. **审批备注**: 手机上审批时能附注原因
-4. **自动超时**: 超时后自动拒绝，避免 Claude 一直等
-5. **多 Claude 实例**: 支持多台电脑共用一个审批服务器
+### 操作审批测试
+- ✅ Web Search 需要手机审批
+- ✅ 命令执行需要手机审批
 
 ---
 
-## 上次对话可能讨论的内容（推测）
+## 当前运行状态
 
-根据 LOG.md 和代码状态，上次可能讨论过：
-1. Windows 编码问题 (.bat 文件中文乱码) → 已解决：改用纯 ASCII
-2. ngrok 版本太低 → 已解决：升级到 3.39.7
-3. Server酱推送配置 → 已解决：端到端测试通过
-4. 安全扫描器绕过 → 已知结论：无法绕过，只能改写命令格式
+| 组件 | 状态 |
+|------|------|
+| HTTP 服务器 | ✅ 端口 8765 |
+| ngrok 隧道 | ✅ petty-mutable-carnivore.ngrok-free.dev |
+| Server酱推送 | ✅ 已配置 |
+| MCP Server | ✅ 正常工作 |
+| 密码 | test9876 |
 
 ---
 
-## 测试状态
+## 待改进（可选）
 
-| 功能 | 状态 | 备注 |
-|------|------|------|
-| 健康检查 | ✅ | |
-| 密码设置/登录 | ✅ | |
-| 创建审批请求 | ✅ | |
-| 批准/拒绝 | ✅ | |
-| 待审批列表 | ✅ | |
-| 历史记录 | ✅ | |
-| SSE 实时推送 | ✅ | |
-| Server酱推送 | ✅ | 端到端验证 |
-| ngrok 隧道 | ✅ | |
-| URL 一键审批 | ⚠️ | 后端未加鉴权（问题 2）|
-| 邮件推送 | ❓ | 未测试，代码有 bug（问题 3）|
-| approve.sh | ❓ | 依赖 jq |
+1. **固定 ngrok 域名** - 免费版每次重启地址会变
+2. **推送渠道扩展** - 支持 PushPlus、邮件等
+3. **审批历史导出** - 导出 JSON/CSV 格式
+4. **Webhook 支持** - 审批完成后回调通知
+
+---
+
+## 文件清单
+
+```
+D:\projects\claude-approver\
+├── server.js              # HTTP 服务器核心 (46KB)
+├── mcp-server.js          # MCP 协议层 (12KB)
+├── .mcp.json              # MCP 配置
+├── CLAUDE.md              # Claude 使用指南
+├── README.md              # 简化版使用文档
+├── config.env             # 环境变量（不入 git）
+├── start.bat              # Windows 启动脚本
+├── approve.sh / approve.ps1  # Bash/PS 审批脚本
+├── ask.sh                 # Bash 提问脚本
+└── .data/                 # 运行时数据
+    ├── auth.json
+    └── requests.json
+```
