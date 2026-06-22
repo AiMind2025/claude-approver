@@ -45,6 +45,11 @@ const AUTH_FILE = path.join(DATA_DIR, 'auth.json');
 const DATA_FILE = path.join(DATA_DIR, 'requests.json');
 const TUNNEL   = (process.env.TUNNEL || 'ngrok').toLowerCase();
 
+// 是否禁用推送通知（用于开发调试、夜间模式等场景）
+const DISABLE_PUSH = ['true', '1', 'yes'].includes(
+  (process.env.DISABLE_PUSH || '').toLowerCase()
+);
+
 // 推送配置
 const PUSH = {
   serverchan:  process.env.SERVERCHAN_KEY  || '',
@@ -177,6 +182,12 @@ function getDashboardURL() {
 }
 
 async function pushNotify(title, desp, reqId) {
+  // 检查是否禁用推送
+  if (DISABLE_PUSH) {
+    log('[推送已禁用]', title.slice(0, 60));
+    return;
+  }
+
   const approveURL = reqId ? getApproveURL(reqId) : '';
   const linkText = approveURL ? `\n\n👉 [点击审批](${approveURL})` : '';
   const fullDesp = desp + linkText;
@@ -1196,6 +1207,12 @@ async function main() {
   log('╚══════════════════════════════════════════════════════╝');
   log('');
 
+  if (DISABLE_PUSH) {
+    log('⚠️  推送通知已禁用 (DISABLE_PUSH=true)');
+    log('   审批请求仅可在手机端网页查看，不会发送微信/邮件通知');
+    log('');
+  }
+
   doListen();
 }
 
@@ -1387,6 +1404,7 @@ module.exports = {
   PORT,
   TUNNEL,
   PUSH,
+  DISABLE_PUSH,
 
   // 状态
   getTunnelURL: () => tunnelURL,

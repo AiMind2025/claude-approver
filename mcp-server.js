@@ -321,6 +321,7 @@ async function handleGetServerInfo() {
       type: 'text',
       text: JSON.stringify({
         port: core.PORT,
+        push_disabled: core.DISABLE_PUSH,
         tunnel_url: core.getTunnelURL(),
         tunnel_type: core.TUNNEL,
         pending_count: core.store.pending.length,
