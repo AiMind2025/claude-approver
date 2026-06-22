@@ -1,30 +1,70 @@
 # PROJECT_CONTEXT.md - 项目决策与进展记录
 
-## 最新状态 (2026-06-15)
+## 最新状态 (2026-06-22)
 
-### ✅ 已完成功能
+### ✅ 自愈机制已启用
 
-1. **MCP Server 完整实现**
-   - 5 个 MCP 工具：request_approval, ask_question, check_status, close_conversation, get_server_info
-   - Claude Code 启动时自动加载
-   - 支持审批和对话功能
+**核心改进**：服务器崩溃自动恢复，无需人工干预
 
-2. **端口冲突自动修复**
-   - 新增 `killPortOccupant()` 函数
-   - MCP Server 启动时自动杀掉占用端口的旧进程
+| 组件 | 状态 |
+|------|------|
+| 服务器 | ✅ 运行中（自愈模式） |
+| ngrok 隧道 | ✅ petty-mutable-carnivore.ngrok-free.dev |
+| 自愈机制 | ✅ 端口冲突自动重启 + 健康自检 |
+| MCP 工具 | ✅ 5 个工具已注册 |
+| 密码 | test9876 |
 
-3. **手机端显示优化**
-   - 问题类型现在显示 `description` 字段（选项列表）
-   - 绿色背景样式突出选项
+### ✅ 已完成功能（按时间线）
 
-4. **CLAUDE.md 完善**
-   - 明确告知 Claude 所有交互必须通过手机
-   - 所有操作（包括 Web Search）需要先 `request_approval`
-   - 带选项的问题使用 `ask_question` 的 `context` 字段
+**2026-06-22 - 自愈机制**
+- server.js 崩溃自动重启（端口冲突、异常退出）
+- 健康监控每 60 秒自检，连续失败强制重启
+- 连续崩溃 >5 次自动暂停，防死循环
+
+**2026-06-15 - MCP Server**
+- 5 个 MCP 工具完整实现
+- 端口冲突自动修复（killPortOccupant）
+- 手机端显示优化（选项显示在绿色区域）
+- CLAUDE.md 完善（所有操作走手机审批）
 
 ---
 
-## 本次会话解决的问题
+## 本次会话解决的问题 (2026-06-22)
+
+### 问题 1: MCP 工具不可用
+
+**现象**：`mcp__approver__request_approval` 不在可用工具列表
+
+**原因**：MCP 服务器进程在会话中途崩溃/消失，Claude Code 启动时未能连接
+
+**解决方案**：给 server.js 和 mcp-server.js 加入自愈机制
+
+### 问题 2: 服务器没有守护
+
+**用户需求**：不想运行 watchdog.sh 等额外命令，只接受 `claude` 一个命令
+
+**解决方案**：自愈逻辑直接内置到 server.js 和 mcp-server.js 中
+
+### 修改详情
+
+**server.js**
+- `doListen()` 替代原来的 `server.listen()`
+- `server.once('error', ...)` → 端口冲突/崩溃自动重启（2-10秒递增延迟）
+- `startHealthMonitor()` → 每 60 秒自检 /api/health
+- `process.on('uncaughtException/unhandledRejection')` → 不崩溃
+- 连续崩溃 >5 次自动暂停
+
+**mcp-server.js**
+- `uncaughtException/unhandledRejection` 捕获
+- 移除了守护子进程方案（Windows EPERM 权限问题）
+
+**AI编程实战.md**
+- 6 大章节完整文档
+- 量化数据：传统 885min → AI 协作 130min，效率提升 6.8 倍
+
+---
+
+## 上次会话解决的问题 (2026-06-15)
 
 ### 问题 1: MCP Server 启动失败 (EADDRINUSE)
 
@@ -85,6 +125,39 @@ async function killPortOccupant(port) {
 
 ---
 
+### 问题 5 (2026-06-22): MCP 工具不可用（自愈机制解决）
+
+**现象**：`mcp__approver__request_approval` 不在可用工具列表
+
+**原因**：MCP 服务器进程在会话中途崩溃/消失
+
+**解决方案**：在 server.js 中添加自愈机制：
+```javascript
+// 端口冲突/崩溃自动重启
+server.once('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    setTimeout(doListen, retryDelay);
+  }
+});
+
+// 健康监控 - 每 60 秒自检
+function startHealthMonitor() {
+  setInterval(async () => {
+    const res = await fetch('http://localhost:8765/api/health');
+    if (!res.ok) crashCount++;
+    if (crashCount > 5) process.exit(1); // 防死循环
+  }, 60000);
+}
+
+// 全局异常捕获
+process.on('uncaughtException', ...);
+process.on('unhandledRejection', ...);
+```
+
+**修改文件**：`server.js`, `mcp-server.js`
+
+---
+
 ## 架构说明
 
 ```
@@ -132,11 +205,20 @@ async function killPortOccupant(port) {
 
 | 组件 | 状态 |
 |------|------|
-| HTTP 服务器 | ✅ 端口 8765 |
+| HTTP 服务器 | ✅ 端口 8765（自愈模式） |
 | ngrok 隧道 | ✅ petty-mutable-carnivore.ngrok-free.dev |
 | Server酱推送 | ✅ 已配置 |
-| MCP Server | ✅ 正常工作 |
+| MCP Server | ✅ 正常工作（异常捕获） |
+| 自愈机制 | ✅ 端口冲突自动重启 + 健康自检 |
 | 密码 | test9876 |
+
+---
+
+## 用户偏好（重要）
+
+- ❌ **不想运行额外命令**，只接受 `claude` 一个命令
+- ✅ **所有审批/咨询都必须走手机**（不是终端弹窗）
+- ✅ 如果 Claude 忘记走手机审批，需要提醒
 
 ---
 

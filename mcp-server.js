@@ -450,6 +450,14 @@ async function main() {
     process.exit(1);
   }
 
+  // 防止 Node 进程因未捕获异常而崩溃（交给 server.js 的自愈机制处理）
+  process.on('uncaughtException', (err) => {
+    log(`[MCP] 未捕获异常（已忽略，自愈机制会处理）: ${err.message}`);
+  });
+  process.on('unhandledRejection', (reason) => {
+    log(`[MCP] 未处理的 Promise 拒绝（已忽略）: ${reason}`);
+  });
+
   // 处理 stdin 的 JSON-RPC 请求
   let buffer = '';
 

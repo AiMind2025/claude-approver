@@ -1184,68 +1184,175 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ─── 启动 ─────────────────────────────────────────────────────────────────────
+var isRestarting = false;      // 防止重复重启
+var consecutiveFailures = 0;   // 连续失败计数
+var healthTimer = null;        // 健康监控定时器
+var lastListenTime = 0;        // 上次 listen 成功的时间
+
 async function main() {
   log('');
   log('╔══════════════════════════════════════════════════════╗');
-  log('║          🤖 Claude 手机审批服务器 (增强版)         ║');
+  log('║          🤖 Claude 审批服务器 (自愈版)            ║');
   log('╚══════════════════════════════════════════════════════╝');
   log('');
 
-  // 启动 HTTP 服务
-  await new Promise(resolve => server.listen(PORT, '0.0.0.0', resolve));
-  log(`✅ HTTP 服务: http://localhost:${PORT}`);
+  doListen();
+}
 
-  // 启动隧道
-  if (TUNNEL !== 'none') {
-    await startNgrok();
+// ─── 监听 + 自愈 ──────────────────────────────────────────────────────────────
+function doListen() {
+  if (isRestarting) return;
+  isRestarting = true;
+
+  // 清理旧的监听状态
+  if (healthTimer) {
+    clearInterval(healthTimer);
+    healthTimer = null;
   }
+  try { server.removeAllListeners('listening'); } catch(e) {}
+  try { server.removeAllListeners('error'); } catch(e) {}
+  try { if (server.listening) server.close(); } catch(e) {}
 
-  // 打印汇总信息
-  log('');
-  log('─── 访问地址 ───────────────────────────');
-  log(`  本地: http://localhost:${PORT}`);
-  if (tunnelURL) {
-    const tokenSuffix = authToken ? `?token=${authToken}` : '';
-    log(`  公网: ${tunnelURL}${tokenSuffix}`);
+  // 新的 error 处理器（只注册一次，闭包复用）
+  server.once('error', (err) => {
+    isRestarting = false;
+    log(`\n❌ [自愈] 服务器错误: ${err.message}`);
+
+    const now = Date.now();
+    if (now - lastListenTime < 10000) {
+      consecutiveFailures++;
+    } else {
+      consecutiveFailures = 1;
+    }
+
+    if (consecutiveFailures > 5) {
+      log(`❌ [自愈] 连续失败 ${consecutiveFailures} 次，放弃重启，请人工检查`);
+      return;
+    }
+
+    const delay = Math.min(consecutiveFailures * 2000, 10000);
+    log(`🔄 [自愈] ${delay/1000}秒后重启... (第 ${consecutiveFailures} 次)`);
+    setTimeout(doListen, delay);
+  });
+
+  // 新的 listening 处理器（只注册一次）
+  server.once('listening', async () => {
+    isRestarting = false;
+    lastListenTime = Date.now();
+    consecutiveFailures = 0;
+    log(`✅ HTTP 服务: http://localhost:${PORT}`);
+
+    // 启动隧道（仅首次启动时）
+    if (TUNNEL !== 'none' && !tunnelURL) {
+      await startNgrok();
+    }
+
+    // 打印汇总信息
+    log('');
+    log('─── 访问地址 ───────────────────────────');
+    log(`  本地: http://localhost:${PORT}`);
+    if (tunnelURL) {
+      const tokenSuffix = authToken ? `?token=${authToken}` : '';
+      log(`  公网: ${tunnelURL}${tokenSuffix}`);
+    }
+    log('');
+    log('─── 推送通道 ───────────────────────────');
+    const channels = [];
+    if (PUSH.serverchan) channels.push('✅ Server酱 (微信)');
+    if (PUSH.pushplus)   channels.push('✅ PushPlus (微信)');
+    if (PUSH.smtpHost)   channels.push('✅ 邮件');
+    if (channels.length) channels.forEach(c => log('  ' + c));
+    else log('  ⚠️  未配置推送，仅本地/公网页面可用');
+    log('');
+    log('─── 安全 ───────────────────────────────');
+    if (authToken) log(`  🔐 密码已设置 (${authToken.slice(0,2)}***)`);
+    else log('  🔓 首次访问网页时将要求设置密码');
+    log('');
+    log('🛡️  [自愈] 已启用崩溃自动恢复');
+    log('');
+
+    startHealthMonitor();
+  });
+
+  try {
+    server.listen(PORT, '0.0.0.0');
+  } catch(e) {
+    isRestarting = false;
+    log(`❌ [自愈] listen 异常: ${e.message}`);
+    setTimeout(doListen, 5000);
   }
-  log('');
+}
 
-  log('─── 推送通道 ───────────────────────────');
-  const channels = [];
-  if (PUSH.serverchan) channels.push('✅ Server酱 (微信)');
-  if (PUSH.pushplus)   channels.push('✅ PushPlus (微信)');
-  if (PUSH.smtpHost)   channels.push('✅ 邮件');
-  if (channels.length) {
-    channels.forEach(c => log('  ' + c));
-  } else {
-    log('  ⚠️  未配置推送，仅本地/公网页面可用');
-    log('  设置 SERVERCHAN_KEY / PUSHPLUS_TOKEN 等启用推送');
-  }
-  log('');
+// ─── 健康监控（每 60 秒自检一次） ──────────────────────────────────────────────
+function startHealthMonitor() {
+  if (healthTimer) return;  // 已在运行
 
-  log('─── 安全 ───────────────────────────────');
-  if (authToken) {
-    log(`  🔐 密码已设置 (${authToken.slice(0,2)}***)`);
-  } else {
-    log('  🔓 首次访问网页时将要求设置密码');
-  }
-  log('');
+  healthTimer = setInterval(() => {
+    if (isRestarting || !server.listening) return;
 
-  log('按 Ctrl+C 停止服务器');
-  log('');
+    const req = http.request(
+      { hostname: '127.0.0.1', port: PORT, path: '/api/health', method: 'GET', timeout: 5000 },
+      (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try {
+            const ok = JSON.parse(data).ok;
+            if (!ok) forceRestart('健康检查返回异常');
+          } catch(e) {
+            forceRestart('健康检查解析失败');
+          }
+        });
+      }
+    );
+    req.on('error', () => {
+      // 端口还在？可能只是暂时卡住，再确认一次
+      const net = require('net');
+      const sock = new net.Socket();
+      sock.setTimeout(2000);
+      sock.on('connect', () => { sock.destroy(); /* 端口还在，不重启 */ });
+      sock.on('error', () => forceRestart('端口已不可达'));
+      sock.on('timeout', () => { sock.destroy(); forceRestart('端口无响应'); });
+      sock.connect(PORT, '127.0.0.1');
+    });
+    req.on('timeout', () => { req.destroy(); });
+    req.end();
+  }, 60000);
+}
+
+function forceRestart(reason) {
+  if (isRestarting) return;
+  log(`\n⚠️  [自愈] ${reason}，强制重启...`);
+  consecutiveFailures++;
+  doListen();
 }
 
 // 优雅退出
+let isShuttingDown = false;
 process.on('SIGINT', () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   log('\n正在关闭...');
+  if (healthTimer) clearInterval(healthTimer);
   stopNgrok();
   server.close();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   stopNgrok();
   server.close();
   process.exit(0);
+});
+
+// 未捕获异常不崩溃，交给自愈机制
+process.on('uncaughtException', (err) => {
+  log(`\n💥 [自愈] 未捕获异常: ${err.message}`);
+  log(err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  log(`\n💥 [自愈] 未处理的 Promise 拒绝: ${reason}`);
 });
 
 // ─── 模块导出 (供 MCP Server 使用) ─────────────────────────────────────────────
