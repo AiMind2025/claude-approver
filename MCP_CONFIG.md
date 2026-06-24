@@ -37,7 +37,7 @@ MCP (Model Context Protocol) 是 Claude Code 的插件协议。配置后，Claud
         "PORT": "8765",
         "TUNNEL": "ngrok",
         "NGROK_AUTHTOKEN": "你的ngrok_token",
-        "SERVERCHAN_KEY": "你的Server酱Key"
+        "PUSHPLUS_TOKEN": "你的PushPlus_Token"
       }
     }
   }

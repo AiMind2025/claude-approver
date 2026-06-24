@@ -8,7 +8,7 @@
 
 ### 场景 1：黄区监控蓝区 AI 开发
 
-**问题**：在涉密单位，蓝区（开发区）的 AI 开发进度无法在黄区（非密区）实时监控。
+**问题**：蓝区的 AI 开发进度无法在黄区电脑实时查看。人一不看蓝区电脑，AI 就成了断线风筝，无法掌握任务动态。
 
 **解决**：
 - Claude 在蓝区执行开发任务
@@ -72,7 +72,7 @@ Claude: 收到批准，继续搜索 ✅
         "PORT": "8765",
         "TUNNEL": "ngrok",
         "NGROK_AUTHTOKEN": "你的ngrok_token",
-        "SERVERCHAN_KEY": "你的server酱key"
+        "MIAOTIXING_ID": "你的喵码"
       }
     }
   }
@@ -94,6 +94,38 @@ claude
 ```
 https://xxxx.ngrok-free.dev?token=你的密码
 ```
+
+### 4. 创建 CLAUDE.md（重要！）
+
+在项目根目录创建 `CLAUDE.md`，告诉 Claude 必须用手机审批。否则 Claude 会直接在终端弹确认框，不会发到手机。
+
+````markdown
+# 手机审批规范
+
+所有需要用户确认的内容都必须发到手机，不能在终端直接弹确认框。
+
+## 操作前必须请求手机审批
+
+所有可能产生影响的操作，都必须先调用 `request_approval` 获得批准：
+
+| 操作类型 | 是否需要审批 |
+|---------|-------------|
+| Web Search | ✅ 需要 |
+| 执行命令（bash、npm、git 等） | ✅ 需要 |
+| 读写文件 | ✅ 需要 |
+| 网络请求 | ✅ 需要 |
+| 安装软件 | ✅ 需要 |
+
+## 提问必须发到手机
+
+所有需要用户回答、选择、确认的内容，都必须通过 MCP 工具发到手机：
+
+- 问题 → 用 `ask_question` 发到手机
+- 选项/建议 → 用 `ask_question` 的 `context` 参数发送
+- 操作审批 → 用 `request_approval` 发到手机
+````
+
+> ⚠️ **每个项目都需要一份 CLAUDE.md**。没有它，Claude 不知道要用手机审批。
 
 ---
 
@@ -139,7 +171,12 @@ Claude 调用 ask_question:
 | `PORT` | 本地端口 | 否，默认 8765 |
 | `TUNNEL` | 隧道类型 | 否，默认 ngrok |
 | `NGROK_AUTHTOKEN` | ngrok 认证 token | 用 ngrok 时必填 |
-| `SERVERCHAN_KEY` | Server酱 SendKey | 否，微信推送用 |
+| `MIAOTIXING_ID` | 喵提醒喵码 | 否，微信推送用（每天100条） |
+| `SMTP_HOST` | 邮件 SMTP 主机 | 否，邮件推送用 |
+| `SMTP_PORT` | SMTP 端口 | 否，默认 465 |
+| `SMTP_USER` | SMTP 用户名 | 否 |
+| `SMTP_PASS` | SMTP 密码 | 否 |
+| `SMTP_TO` | 收件人邮箱 | 否 |
 | `AUTH_TOKEN` | 访问密码 | 否，首次访问时设置 |
 | `DISABLE_PUSH` | 禁用推送通知 | 否，默认 false |
 
@@ -157,7 +194,7 @@ Claude 调用 ask_question:
 
 禁用后：
 - ✅ 审批/提问功能正常（可在手机网页查看）
-- ❌ 不发送微信/PushPlus/邮件通知
+- ❌ 不发送微信喵提醒/邮件通知
 - ✅ 启动时显示 `⚠️ 推送通知已禁用`
 
 支持的值：`true` / `1` / `yes`（不区分大小写）
@@ -168,11 +205,15 @@ Claude 调用 ask_question:
 
 ```
 claude-approver/
-├── mcp-server.js      # MCP 服务器
-├── server.js          # HTTP 服务器核心
-├── .mcp.json          # MCP 配置
+├── mcp-server.js      # MCP 服务器（协议层，异常捕获）
+├── server.js          # HTTP 服务器核心（自愈模式、喵提醒推送）
+├── .mcp.json          # MCP 配置（MIAOTIXING_ID=你的喵码）
 ├── CLAUDE.md          # Claude 使用指南
 ├── config.env         # 环境变量配置
+├── PROJECT_CONTEXT.md # 项目决策与进展记录
+├── AI编程实践.md       # 实战复盘文档（含测试用例）
+├── TEST_CASES.md      # 测试用例
+├── screenshots/       # 测试截图目录
 ├── start.bat          # 手动启动脚本
 └── .data/             # 运行时数据
     ├── auth.json      # 认证信息
@@ -197,8 +238,9 @@ claude-approver/
 
 ## 📝 更新日志
 
+- 2026-06-22: 推送通道迁移：Server酱/WxPusher/PushPlus → 喵提醒（每天100条）
+- 2026-06-22: 服务器自愈机制（崩溃自动重启、健康监控）
 - 2026-06-22: 新增 `DISABLE_PUSH` 配置，可禁用推送通知
-- 2026-06-22: 服务器自愈机制（崩溃自动重启）
 - 2026-06-15: MCP Server 完成，支持审批和对话功能
 - 2026-06-15: 修复端口冲突问题，自动清理旧进程
 - 2026-06-15: 手机端显示选项列表

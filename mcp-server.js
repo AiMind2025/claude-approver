@@ -327,8 +327,7 @@ async function handleGetServerInfo() {
         pending_count: core.store.pending.length,
         has_auth: !!core.getAuthToken(),
         push_channels: {
-          serverchan: !!core.PUSH.serverchan,
-          pushplus: !!core.PUSH.pushplus,
+          miaotixing: !!core.PUSH.miaotixing,
           email: !!core.PUSH.smtpHost
         }
       })

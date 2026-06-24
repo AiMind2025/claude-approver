@@ -3,7 +3,7 @@
  *
  * 功能:
  *   - 自动启动 ngrok 隧道，手机外网访问
- *   - 多通道推送: Server酱 / PushPlus / 邮件
+ *   - 多通道推送: 喵提醒 / 邮件
  *   - 推送内容含公网审批链接，手机直接点
  *   - 首次访问设置密码，生成二维码
  *   - 公网访问全程鉴权
@@ -13,8 +13,7 @@
  *   AUTH_TOKEN        访问密码           留空=首次访问时设置
  *   TUNNEL            隧道工具           ngrok | cloudflare | none
  *   NGROK_AUTHTOKEN   ngrok 认证 token
- *   SERVERCHAN_KEY    Server酱 SendKey
- *   PUSHPLUS_TOKEN    PushPlus Token
+ *   MIAOTIXING_ID     喵提醒喵码（微信推送，免费）
  *   SMTP_HOST         邮件 SMTP 服务器
  *   SMTP_PORT         SMTP 端口         默认 465
  *   SMTP_USER         发件人
@@ -52,13 +51,12 @@ const DISABLE_PUSH = ['true', '1', 'yes'].includes(
 
 // 推送配置
 const PUSH = {
-  serverchan:  process.env.SERVERCHAN_KEY  || '',
-  pushplus:    process.env.PUSHPLUS_TOKEN  || '',
-  smtpHost:    process.env.SMTP_HOST       || '',
+  miaotixing:  process.env.MIAOTIXING_ID    || '',
+  smtpHost:    process.env.SMTP_HOST        || '',
   smtpPort:    parseInt(process.env.SMTP_PORT || '465', 10),
-  smtpUser:    process.env.SMTP_USER       || '',
-  smtpPass:    process.env.SMTP_PASS       || '',
-  smtpTo:      process.env.SMTP_TO         || '',
+  smtpUser:    process.env.SMTP_USER        || '',
+  smtpPass:    process.env.SMTP_PASS        || '',
+  smtpTo:      process.env.SMTP_TO          || '',
 };
 
 // ─── 持久化 ──────────────────────────────────────────────────────────────────
@@ -189,34 +187,20 @@ async function pushNotify(title, desp, reqId) {
   }
 
   const approveURL = reqId ? getApproveURL(reqId) : '';
-  const linkText = approveURL ? `\n\n👉 [点击审批](${approveURL})` : '';
-  const fullDesp = desp + linkText;
+  const linkText = approveURL ? `\n👉 审批链接: ${approveURL}` : '';
+  const fullText = title + '\n' + desp + linkText;
 
   const tasks = [];
 
-  // 1. Server酱
-  if (PUSH.serverchan) {
+  // 1. 喵提醒（微信推送，免费）
+  if (PUSH.miaotixing) {
+    const miaoURL = `http://miaotixing.com/trigger?id=${encodeURIComponent(PUSH.miaotixing)}&text=${encodeURIComponent(fullText.slice(0, 500))}`;
     tasks.push(
-      httpRequest(`https://sctapi.ftqq.com/${PUSH.serverchan}.send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `title=${encodeURIComponent(title)}&desp=${encodeURIComponent(fullDesp)}`,
-      }).then(r => log('[Server酱]', r.status)).catch(e => console.error('[Server酱]', e.message))
+      httpRequest(miaoURL).then(r => log('[喵提醒]', r.status, r.body?.slice(0, 100))).catch(e => console.error('[喵提醒]', e.message))
     );
   }
 
-  // 2. PushPlus
-  if (PUSH.pushplus) {
-    tasks.push(
-      httpRequest('https://www.pushplus.plus/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: PUSH.pushplus, title, content: fullDesp, template: 'markdown' }),
-      }).then(r => log('[PushPlus]', r.status)).catch(e => console.error('[PushPlus]', e.message))
-    );
-  }
-
-  // 3. Email
+  // 2. Email
   if (PUSH.smtpHost && PUSH.smtpUser && PUSH.smtpTo) {
     tasks.push(sendEmail(title, fullDesp).catch(e => console.error('[Email]', e.message)));
   }
@@ -1211,6 +1195,17 @@ async function main() {
     log('⚠️  推送通知已禁用 (DISABLE_PUSH=true)');
     log('   审批请求仅可在手机端网页查看，不会发送微信/邮件通知');
     log('');
+  } else {
+    const channels = [
+      PUSH.miaotixing ? '喵提醒' : null,
+      (PUSH.smtpHost && PUSH.smtpUser && PUSH.smtpTo) ? 'Email' : null,
+    ].filter(Boolean);
+    if (channels.length === 0) {
+      log('⚠️  未配置任何推送通道，仅本地可用');
+    } else {
+      log(`📱 推送通道: ${channels.join(', ')}`);
+    }
+    log('');
   }
 
   doListen();
@@ -1275,9 +1270,8 @@ function doListen() {
     log('');
     log('─── 推送通道 ───────────────────────────');
     const channels = [];
-    if (PUSH.serverchan) channels.push('✅ Server酱 (微信)');
-    if (PUSH.pushplus)   channels.push('✅ PushPlus (微信)');
-    if (PUSH.smtpHost)   channels.push('✅ 邮件');
+    if (PUSH.miaotixing)   channels.push('✅ 喵提醒 (微信)');
+    if (PUSH.smtpHost)     channels.push('✅ 邮件');
     if (channels.length) channels.forEach(c => log('  ' + c));
     else log('  ⚠️  未配置推送，仅本地/公网页面可用');
     log('');

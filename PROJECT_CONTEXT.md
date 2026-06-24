@@ -1,31 +1,77 @@
 # PROJECT_CONTEXT.md - 项目决策与进展记录
 
-## 最新状态 (2026-06-22)
+## 最新状态 (2026-06-22 第三轮更新)
 
-### ✅ 自愈机制已启用
-
-**核心改进**：服务器崩溃自动恢复，无需人工干预
+### ✅ 推送通道已切换为「喵提醒」
 
 | 组件 | 状态 |
 |------|------|
 | 服务器 | ✅ 运行中（自愈模式） |
 | ngrok 隧道 | ✅ petty-mutable-carnivore.ngrok-free.dev |
-| 自愈机制 | ✅ 端口冲突自动重启 + 健康自检 |
+| 推送通道 | ✅ 喵提醒（微信，每天100条） |
+| 喵码 | tz1qP8C |
 | MCP 工具 | ✅ 5 个工具已注册 |
 | 密码 | test9876 |
 
-### ✅ 已完成功能（按时间线）
+### ✅ 本次会话完整进展（推送通道迁移）
 
-**2026-06-22 - 自愈机制**
-- server.js 崩溃自动重启（端口冲突、异常退出）
-- 健康监控每 60 秒自检，连续失败强制重启
-- 连续崩溃 >5 次自动暂停，防死循环
+**起点问题**：手机收不到微信推送通知
 
-**2026-06-15 - MCP Server**
-- 5 个 MCP 工具完整实现
-- 端口冲突自动修复（killPortOccupant）
-- 手机端显示优化（选项显示在绿色区域）
-- CLAUDE.md 完善（所有操作走手机审批）
+**排查过程**：
+1. 检查推送通道 → `get_server_info` 显示 `wxpusher: true`，凭证已加载
+2. 直接调用 WxPusher API 测试 → 返回 `code:1000`（成功），但微信收不到
+3. 用户确认已在 WxPusher 公众号订阅了「claude审批」应用
+4. 发现 WxPusher 公众号页面提示：「微信已无法推送消息，请下载 APP」
+5. **结论：微信封杀了 WxPusher 公众号的消息推送能力**（平台层面限制）
+
+**尝试 PushPlus**：
+- API 返回 `code:905 账户未进行实名认证`
+- 实名需付费，不划算
+
+**最终方案：喵提醒（miaotixing.com）**
+- 微信服务号提醒，每天100条额度
+- API 极简：`GET http://miaotixing.com/trigger?id=<喵码>&text=内容`
+- 测试推送成功，`mptext:1` 表示微信已送达
+
+**代码改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `server.js` | 移除 WxPusher/PushPlus，新增喵提醒推送 |
+| `mcp-server.js` | `push_channels` 改为 `{ miaotixing, email }` |
+| `.mcp.json` | `MIAOTIXING_ID=tz1qP8C` |
+| `config.env` | 同上 |
+| `README.md` | 更新配置说明 |
+| `MCP_CONFIG.md` | 更新配置示例 |
+| 删除 | `DESIGN_PUSH_MIGRATION.md`、`TEST_PUSH_MIGRATION.md`、`DESIGN_DISABLE_PUSH.md`（旧方案文档） |
+
+**当前推送配置**：
+```env
+MIAOTIXING_ID=tz1qP8C
+```
+
+```javascript
+// pushNotify 中喵提醒调用
+const miaoURL = `http://miaotixing.com/trigger?id=${id}&text=${encodeURIComponent(text)}`;
+httpRequest(miaoURL)  // GET 请求即可
+```
+
+### 💡 关键经验教训
+
+| 推送方案 | 结局 | 原因 |
+|---------|------|------|
+| Server酱 | ❌ 废弃 | 免费仅 5 条/天，超额 |
+| WxPusher | ❌ 废弃 | 微信封杀公众号推送能力 |
+| PushPlus | ❌ 废弃 | 需付费实名认证 |
+| **喵提醒** | ✅ 使用中 | 每天100条、微信接收、API 简单 |
+
+### ⚠️ 重启后注意
+
+需要**重启 Claude Code** 才能让新的 `MIAOTIXING_ID` 环境变量生效（MCP 服务器进程需要重新加载）。
+
+---
+
+## 历史：自愈机制 (2026-06-22 第一轮)
 
 ---
 
@@ -175,7 +221,7 @@ process.on('unhandledRejection', ...);
                     ┌─────────────┼─────────────┐
                     ▼             ▼             ▼
               ┌──────────┐  ┌──────────┐  ┌──────────┐
-              │  ngrok   │  │ Server酱  │  │  .data/  │
+              │  ngrok   │  │ 喵提醒    │  │  .data/  │
               │  (隧道)   │  │ (微信推送) │  │ (持久化)  │
               └──────────┘  └──────────┘  └──────────┘
 ```
@@ -207,7 +253,7 @@ process.on('unhandledRejection', ...);
 |------|------|
 | HTTP 服务器 | ✅ 端口 8765（自愈模式） |
 | ngrok 隧道 | ✅ petty-mutable-carnivore.ngrok-free.dev |
-| Server酱推送 | ✅ 已配置 |
+| 喵提醒推送 | ✅ 喵码 tz1qP8C（每天100条） |
 | MCP Server | ✅ 正常工作（异常捕获） |
 | 自愈机制 | ✅ 端口冲突自动重启 + 健康自检 |
 | 密码 | test9876 |
@@ -235,11 +281,12 @@ process.on('unhandledRejection', ...);
 
 ```
 D:\projects\claude-approver\
-├── server.js              # HTTP 服务器核心 (46KB)
-├── mcp-server.js          # MCP 协议层 (12KB)
-├── .mcp.json              # MCP 配置
+├── server.js              # HTTP 服务器核心（喵提醒推送）
+├── mcp-server.js          # MCP 协议层
+├── .mcp.json              # MCP 配置（MIAOTIXING_ID=tz1qP8C）
 ├── CLAUDE.md              # Claude 使用指南
 ├── README.md              # 简化版使用文档
+├── PROJECT_CONTEXT.md     # 本文档
 ├── config.env             # 环境变量（不入 git）
 ├── start.bat              # Windows 启动脚本
 ├── approve.sh / approve.ps1  # Bash/PS 审批脚本
