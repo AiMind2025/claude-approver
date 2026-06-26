@@ -4,18 +4,9 @@
 
 ## 1. 项目概览
 
-| 维度 | 详细说明 |
-|------|---------|
-| **业务背景** | 蓝区的 AI 开发进度无法在黄区电脑实时查看，人一不看蓝区电脑，AI 就成了断线风筝；吃饭/离开电脑时 Claude Code 审批流程卡死，需人工回到电脑前操作 |
-| **痛点** | ① 开发者必须守在电脑前审批 Claude 请求 ② 远程无法监控 AI 开发进度 ③ 危险操作（rm、git push 等）无法在手机上确认 |
-| **需求名称** | Claude 手机审批服务器（claude-approver） |
-| **技术栈** | Node.js / HTML5 / CSS3 / JavaScript（零外部依赖） |
-| **涉及代码量** | 约 1,500 行（server.js ~1,400 行 + mcp-server.js ~500 行） |
-| **IDE** | 终端 + Claude Code CLI |
-| **核心工具** | Claude Code（Sonnet 4.6） |
-| **工具版本** | Claude Code v1.0+，Node.js v18+，ngrok 3.x，MCP 协议版本 2024-11-05 |
-| **核心收益** | **初始开发效率提升 6.8 倍（传统 15h → AI 协作 2h）；后续迭代（推送迁移、自愈机制、测试用例）同样高效；零外部依赖，开箱即用** |
-| **实践输出人** | 艾硕 |
+- **业务背景**：蓝区的 AI 开发进度无法在黄区电脑实时查看，人一不看蓝区电脑，AI 就成了断线风筝；吃饭/离开电脑时 Claude Code 审批流程卡死，需人工回到电脑前操作
+- **痛点**：① 开发者必须守在电脑前审批 Claude 请求 ② 远程无法监控 AI 开发进度 ③ 危险操作（rm、git push 等）无法在手机上确认
+- **需求名称**：Claude 手机审批服务器（claude-approver）
 
 ---
 
@@ -394,92 +385,6 @@ if (crashCount > 5) process.exit(1);
 
 ---
 
-### 避坑指南
-
-#### 避雷点 A：MCP 协议的 stdout/stderr 混淆
-
-**问题：** MCP 要求 JSON-RPC 通过 stdout 传输，但日志也默认输出到 stdout，导致协议解析失败。
-
-**解决方案：** 通过 `process.env.MCP_MODE = '1'` 环境变量，让日志输出到 stderr：
-```javascript
-const isMCPMode = process.env.MCP_MODE === '1';
-const logTarget = isMCPMode ? process.stderr : process.stdout;
-```
-
-#### 避雷点 B：ngrok 路径探测的跨平台问题
-
-**问题：** 不同安装方式（winget、scoop、手动下载）的 ngrok 路径完全不同。
-
-**解决方案：** 枚举所有候选路径 + `where ngrok` 兜底：
-```javascript
-const candidates = [
-  path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'ngrok.exe'),
-  path.join(process.env.USERPROFILE, 'scoop', 'shims', 'ngrok.exe'),
-  // ...更多候选
-];
-for (const p of candidates) {
-  if (fs.existsSync(p)) { ngrokPath = p; break; }
-}
-```
-
-#### 避雷点 C：中文 Windows 的 GBK 编码
-
-**问题：** 中文 Windows 系统的 HTTP 请求可能使用 GBK 编码，导致中文乱码。
-
-**解决方案：** 用 `TextDecoder` 的 `fatal` 模式检测编码，失败时 fallback 到 GBK：
-```javascript
-try {
-  new TextDecoder('utf-8', { fatal: true }).decode(buf);
-} catch {
-  body = new TextDecoder('gbk').decode(buf);
-}
-```
-
-#### 避雷点 D：手机输入框焦点丢失
-
-**问题：** SSE 推送触发重新渲染时，如果用户正在输入框打字，输入框会失去焦点，输入内容丢失。
-
-**解决方案：** 渲染前检查 `activeElement`：
-```javascript
-const activeEl = document.activeElement;
-if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
-  return;  // 跳过渲染，不打断用户输入
-}
-```
-
-#### 避雷点 E：端口冲突
-
-**问题：** Claude Code 可能多次启动 MCP Server，导致端口 8765 被旧进程占用。
-
-**解决方案：** 启动前自动清理：
-```javascript
-// Windows: netstat + taskkill
-// Linux/Mac: lsof + kill -9
-async function killPortOccupant(port) { ... }
-```
-
-#### 避雷点 F：推送通道的「假成功」陷阱
-
-**问题：** 多个微信推送平台 API 返回成功（`code:0` 或 `code:1000`），但微信实际收不到消息。这不是代码 bug，而是平台层面的限制——微信逐步封杀了第三方公众号的模板消息推送能力。
-
-**解决方案：**
-1. **不要只看 API 返回值**，必须真机验证推送是否到达
-2. **选择平台风险低的方案**：喵提醒基于微信服务号（非公众号），目前稳定
-3. **备选方案要预留**：代码中保留邮件推送通道，作为微信推送失效时的兜底
-4. **定期测试**：推送通道可能静默失效，建议启动时自动测试一次
-
-**核心教训：** 推送这类「依赖外部平台」的功能，比纯代码逻辑脆弱得多。选方案时，**免费 > 付费** 不一定对，但**架构简单 > 复杂** 永远对。喵提醒一行 GET 请求 vs WxPusher 多步 OAuth + 模板消息，后者出问题时排查成本远高于前者。
-
----
-
-### 谁可以复用？
-
-**适用人群：** 正在开发 Claude Code MCP 插件、需要远程控制 AI 编程流程、需要搭建"AI ↔ 人"交互通道的开发者。
-
-**一句话金句：** **AI 的产出质量上限，不取决于模型有多强，而取决于你把需求拆得多细。**
-
----
-
 ## 6. 效果量化
 
 ### 开发效率对比
@@ -655,6 +560,86 @@ Claude Code          MCP Server          HTTP API           手机 Web          
 | 审批用例 | ✅ 通过 |
 | 多轮对话 | ✅ 通过 |
 | **总计** | **3/3 通过** |
+
+---
+
+## 8. 避坑指南（复现参考）
+
+> 💡 以下内容仅在复现开发过程时需要参考，优先级较低，可跳过。
+
+### 避雷点 A：MCP 协议的 stdout/stderr 混淆
+
+**问题：** MCP 要求 JSON-RPC 通过 stdout 传输，但日志也默认输出到 stdout，导致协议解析失败。
+
+**解决方案：** 通过 `process.env.MCP_MODE = '1'` 环境变量，让日志输出到 stderr：
+```javascript
+const isMCPMode = process.env.MCP_MODE === '1';
+const logTarget = isMCPMode ? process.stderr : process.stdout;
+```
+
+### 避雷点 B：ngrok 路径探测的跨平台问题
+
+**问题：** 不同安装方式（winget、scoop、手动下载）的 ngrok 路径完全不同。
+
+**解决方案：** 枚举所有候选路径 + `where ngrok` 兜底：
+```javascript
+const candidates = [
+  path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'ngrok.exe'),
+  path.join(process.env.USERPROFILE, 'scoop', 'shims', 'ngrok.exe'),
+  // ...更多候选
+];
+for (const p of candidates) {
+  if (fs.existsSync(p)) { ngrokPath = p; break; }
+}
+```
+
+### 避雷点 C：中文 Windows 的 GBK 编码
+
+**问题：** 中文 Windows 系统的 HTTP 请求可能使用 GBK 编码，导致中文乱码。
+
+**解决方案：** 用 `TextDecoder` 的 `fatal` 模式检测编码，失败时 fallback 到 GBK：
+```javascript
+try {
+  new TextDecoder('utf-8', { fatal: true }).decode(buf);
+} catch {
+  body = new TextDecoder('gbk').decode(buf);
+}
+```
+
+### 避雷点 D：手机输入框焦点丢失
+
+**问题：** SSE 推送触发重新渲染时，如果用户正在输入框打字，输入框会失去焦点，输入内容丢失。
+
+**解决方案：** 渲染前检查 `activeElement`：
+```javascript
+const activeEl = document.activeElement;
+if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+  return;  // 跳过渲染，不打断用户输入
+}
+```
+
+### 避雷点 E：端口冲突
+
+**问题：** Claude Code 可能多次启动 MCP Server，导致端口 8765 被旧进程占用。
+
+**解决方案：** 启动前自动清理：
+```javascript
+// Windows: netstat + taskkill
+// Linux/Mac: lsof + kill -9
+async function killPortOccupant(port) { ... }
+```
+
+### 避雷点 F：推送通道的「假成功」陷阱
+
+**问题：** 多个微信推送平台 API 返回成功（`code:0` 或 `code:1000`），但微信实际收不到消息。这不是代码 bug，而是平台层面的限制——微信逐步封杀了第三方公众号的模板消息推送能力。
+
+**解决方案：**
+1. **不要只看 API 返回值**，必须真机验证推送是否到达
+2. **选择平台风险低的方案**：喵提醒基于微信服务号（非公众号），目前稳定
+3. **备选方案要预留**：代码中保留邮件推送通道，作为微信推送失效时的兜底
+4. **定期测试**：推送通道可能静默失效，建议启动时自动测试一次
+
+**核心教训：** 推送这类「依赖外部平台」的功能，比纯代码逻辑脆弱得多。选方案时，**免费 > 付费** 不一定对，但**架构简单 > 复杂** 永远对。喵提醒一行 GET 请求 vs WxPusher 多步 OAuth + 模板消息，后者出问题时排查成本远高于前者。
 
 ---
 
