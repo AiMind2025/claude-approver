@@ -36,6 +36,10 @@ const TOOLS = [
           type: 'string',
           description: 'Description of what the command does'
         },
+        context: {
+          type: 'string',
+          description: 'Additional context or background information for the approval request'
+        },
         risk: {
           type: 'string',
           enum: ['normal', 'warning', 'danger'],
@@ -172,13 +176,14 @@ async function waitForStatus(requestId, timeout, targetStatuses) {
 }
 
 async function handleRequestApproval(params) {
-  const { command, description, risk = 'normal', timeout = 300 } = params;
+  const { command, description, context, risk = 'normal', timeout = 300 } = params;
 
   // 创建审批请求
   const req = core.createRequest({
     type: 'approval',
     command,
     description,
+    context,
     risk
   });
 
@@ -200,13 +205,16 @@ async function handleRequestApproval(params) {
     };
   }
 
+  const request = result.request;
   return {
     content: [{
       type: 'text',
       text: JSON.stringify({
         status: result.status,
-        request_id: req.id,
-        message: result.status === 'approved' ? 'Approved by user' : 'Rejected by user'
+        request_id: request.id,
+        message: result.status === 'approved' ? 'Approved by user' : 'Rejected by user',
+        reply: request.reply || null,  // 用户回复内容
+        conversation_id: request.id  // 用于继续对话
       })
     }]
   };

@@ -268,6 +268,112 @@ process.on('unhandledRejection', ...);
 
 ---
 
+## 本次会话进展 (2026-06-30)
+
+### ✅ AI编程实践文档完善
+
+**文档更新**：
+- 标题改为「造工具而非反复造技能：2 小时搭建手机审批服务器，效率提升 6.8 倍」
+- 项目概览简化为 3 个核心要点（业务背景、痛点、需求名称）
+- 新增「背景与价值」和「核心价值」表格（参考 SKILL 分享格式）
+- 实践感悟分为两个核心观点：
+  1. 从「服务模型」到「服务人」的跨越
+  2. 「场景拆解 + 迭代反馈」是分水岭
+- 避坑指南移至最后，标注为复现参考
+- 新增测试验证章节（3 个测试用例 + 截图）
+
+**关键洞察**：
+- Skill（服务模型）vs Tool（服务人）的本质区别
+- 工具可复用、可共享、可进化、效率倍增
+- 从「提升自己」到「提升系统」的思维转变
+
+---
+
+### ✅ 审批请求支持上下文 (context) 功能
+
+**需求**：审批请求允许添加上下文信息，帮助用户理解操作背景
+
+**实现**：
+1. **MCP 工具定义** - `request_approval` 新增 `context` 参数
+2. **数据存储** - `createRequest` 函数支持保存 `context`
+3. **推送通知** - 微信推送包含上下文信息
+4. **前端显示** - 审批卡片显示蓝色背景的上下文区域
+5. **历史记录** - 历史审批也显示上下文
+
+**代码改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `mcp-server.js` | 工具定义新增 `context` 参数 |
+| `server.js` | `createRequest` 保存 context，前端显示 context，推送包含 context |
+| `server.js` | 新增 `.context` CSS 样式（蓝色背景） |
+
+**使用示例**：
+```json
+{
+  "command": "npm install axios",
+  "description": "安装 axios HTTP 客户端库",
+  "context": "项目需要调用外部 REST API。当前使用 Node.js 内置 http 模块，代码较复杂。",
+  "risk": "normal"
+}
+```
+
+---
+
+### ✅ 审批卡片增加回复功能（远程动态调整开发）
+
+**需求**：用户在审批操作的同时可以给 Claude 回复消息，实现远程动态调整开发
+
+**实现**：
+1. **前端** - 审批卡片新增回复输入框
+2. **前端** - `decideWithReply` 函数先发送回复再执行审批
+3. **后端** - `replyRequest` 对审批类型保持 pending 状态（不改为 replied）
+4. **MCP** - `handleRequestApproval` 返回 `reply` 字段和 `conversation_id`
+
+**完整流程**：
+1. Claude 请求审批（npm install axios）
+2. 用户在手机上回复："总结上下文，我看看开发需不需要调整"
+3. 用户点击"批准"
+4. Claude 收到：`{status: "approved", reply: "总结上下文...", conversation_id: "xxx"}`
+5. Claude 根据回复继续对话
+
+**代码改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `server.js` | 审批卡片新增回复输入框 |
+| `server.js` | 新增 `decideWithReply` 函数 |
+| `server.js` | `replyRequest` 对审批类型保持 pending |
+| `mcp-server.js` | `handleRequestApproval` 返回 reply 和 conversation_id |
+
+---
+
+### 🔧 文档和配置更新
+
+| 文件 | 改动 |
+|------|------|
+| `README.md` | 快速开始改为傻瓜式教程（7 步） |
+| `README.md` | 新增 ngrok Token 截图 |
+| `README.md` | 简化标题（去除「傻瓜式教程」） |
+| `README.md` | 文件结构新增 TEST_CASES.md 和 screenshots |
+| `AI编程实践.md` | 核心价值新增「多工具协作」 |
+| `AI编程实践.md` | 核心收益移到价值区，删除详细说明表 |
+| `AI编程实践.md` | 新增测试验证章节（3 个用例 + 截图） |
+| `TEST_CASES.md` | 新增测试文档（3 个用例） |
+| `screenshots/` | 新增 4 张测试截图 |
+
+---
+
+### 📊 测试验证
+
+| 用例 | 状态 | 截图 |
+|------|------|------|
+| 微信通知 | ✅ 通过 | 微信通知.png |
+| 审批用例（带 context） | ✅ 通过 | npm 依赖审批.jpg |
+| 多轮对话用例 | ✅ 通过 | 多轮对话 1/2/3.jpg |
+
+---
+
 ## 待改进（可选）
 
 1. **固定 ngrok 域名** - 免费版每次重启地址会变
@@ -281,16 +387,25 @@ process.on('unhandledRejection', ...);
 
 ```
 D:\projects\claude-approver\
-├── server.js              # HTTP 服务器核心（喵提醒推送）
-├── mcp-server.js          # MCP 协议层
+├── server.js              # HTTP 服务器核心（喵提醒推送、context、审批回复）
+├── mcp-server.js          # MCP 协议层（context 参数、返回 reply）
 ├── .mcp.json              # MCP 配置（MIAOTIXING_ID=tz1qP8C）
 ├── CLAUDE.md              # Claude 使用指南
-├── README.md              # 简化版使用文档
+├── README.md              # 傻瓜式使用文档（7 步教程）
 ├── PROJECT_CONTEXT.md     # 本文档
+├── AI编程实践.md           # 实战复盘文档（造工具而非反复造技能）
+├── TEST_CASES.md          # 测试用例文档
 ├── config.env             # 环境变量（不入 git）
 ├── start.bat              # Windows 启动脚本
 ├── approve.sh / approve.ps1  # Bash/PS 审批脚本
 ├── ask.sh                 # Bash 提问脚本
+├── screenshots/           # 测试截图目录
+│   ├── 微信通知.png
+│   ├── npm 依赖审批.jpg
+│   ├── 多轮对话 1.jpg
+│   ├── 多轮对话 2.jpg
+│   ├── 多轮对话 3.jpg
+│   └── dashboard-auth-token.png
 └── .data/                 # 运行时数据
     ├── auth.json
     └── requests.json

@@ -305,13 +305,15 @@ function sendEmail(subject, body) {
 }
 
 // ─── 审批/对话逻辑 ─────────────────────────────────────────────────────────────
-function createRequest({ command, description, risk, type, conversationId }) {
+function createRequest({ command, description, context, risk, type, conversationId }) {
+  log('[调试] createRequest 参数:', { command, description, context, risk, type });
   const reqType = type || 'approval';
   const req = {
     id: uid(),
     type: reqType,
     command: command || '(无)',
     description: description || '',
+    context: context || '',
     risk: risk || 'normal',
     status: 'pending',
     // 对话相关字段
@@ -331,7 +333,9 @@ function createRequest({ command, description, risk, type, conversationId }) {
   } else {
     const riskEmoji = { normal: '🟢', warning: '🟡', danger: '🔴' }[risk] || '🟢';
     title = `${riskEmoji} Claude 请求审批`;
-    desp = `**命令:**\n\`\`\`\n${command}\n\`\`\`\n\n**描述:** ${description || '无'}\n\n**风险:** ${risk}`;
+    desp = `**命令:**\n\`\`\`\n${command}\n\`\`\`\n\n**描述:** ${description || '无'}`;
+    if (context) desp += `\n\n**上下文:**\n${context}`;
+    desp += `\n\n**风险:** ${risk}`;
   }
 
   pushNotify(title, desp, req.id);
@@ -367,7 +371,12 @@ function replyRequest(id, message) {
 
   // 对于问题类型，不移动到 completed，保持 pending 等待追问
   // 但更新状态让 Claude 知道有新回复
-  req.status = 'replied';
+  if (req.type === 'question') {
+    req.status = 'replied';
+  }
+  // 对于审批类型，保持 pending 状态，等待用户批准/拒绝
+  // 回复内容已保存到 req.reply
+
   saveJSON(DATA_FILE, store);
   log(`[回复] ${req.id}: ${(message || '').slice(0, 50)}`);
   return req;
@@ -403,6 +412,7 @@ const apiRoutes = {
     if (!checkAuth(req)) return json(res, 401, { error: '未授权' });
     const body = await readBody(req);
     if (!body.command) return json(res, 400, { error: '缺少 command' });
+    log('[调试] API body:', JSON.stringify(body));
     json(res, 200, { ok: true, request: createRequest(body) });
   },
 
@@ -677,6 +687,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans S
 .risk-normal .risk-label{color:#27ae60}
 .desc{font-size:14px;color:#ccc;margin-bottom:10px;line-height:1.4}
 .desc-options{background:#1a1a1a;border-radius:8px;padding:12px 14px;margin-bottom:14px;white-space:pre-line;font-size:14px;line-height:1.6;color:#a8e6cf}
+.context{background:#1e2a3a;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.5;color:#b8d4e3;border-left:3px solid #4a90a4}
 .cmd{background:#0d0d1a;border-radius:8px;padding:10px 12px;
   font-family:"Fira Code",Menlo,Consolas,monospace;font-size:12px;color:#a0e0a0;
   white-space:pre-wrap;word-break:break-all;margin-bottom:12px;max-height:120px;
@@ -946,11 +957,15 @@ function renderPending(list) {
       <div class="card risk-\${r.risk}" id="card-\${r.id}">
         <div class="risk-label">\${riskLabel(r.risk)}</div>
         <div class="desc">\${esc(r.description) || '（无描述）'}</div>
+        \${r.context ? \`<div class="context">📝 \${esc(r.context).replace(/\\n/g, '<br>')}</div>\` : ''}
         <div class="cmd">\${esc(r.command)}</div>
         <div class="time">\${timeAgo(r.created_at)}</div>
+        <div class="reply-box">
+          <textarea id="approval-reply-\${r.id}" class="reply-input" placeholder="回复 Claude（可选）..." rows="2"></textarea>
+        </div>
         <div class="btns">
-          <button class="btn btn-reject"  onclick="decide('\${r.id}','reject')">✗ 拒绝</button>
-          <button class="btn btn-approve" onclick="decide('\${r.id}','approve')">✓ 批准</button>
+          <button class="btn btn-reject"  onclick="decideWithReply('\${r.id}','reject')">✗ 拒绝</button>
+          <button class="btn btn-approve" onclick="decideWithReply('\${r.id}','approve')">✓ 批准</button>
         </div>
       </div>
     \`;
@@ -993,6 +1008,7 @@ function renderHistory(list) {
       <div class="card">
         \${statusTag}
         <div class="desc">\${esc(r.description) || '（无描述）'}</div>
+        \${r.context ? \`<div class="context">📝 \${esc(r.context).replace(/\\n/g, '<br>')}</div>\` : ''}
         <div class="cmd">\${esc(r.command)}</div>
         <div class="time">\${timeAgo(r.decided_at || r.created_at)}</div>
       </div>
@@ -1021,6 +1037,30 @@ async function decide(id, action) {
     showToast('⚠️ 网络错误');
     if (card) card.classList.remove('decided');
   }
+}
+
+async function decideWithReply(id, action) {
+  // 先获取回复内容（如果有）
+  const textarea = document.getElementById('approval-reply-' + id);
+  const reply = textarea ? textarea.value.trim() : '';
+
+  // 如果有回复，先发送回复
+  if (reply) {
+    try {
+      await fetch(API + '/api/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ id, message: reply }),
+      });
+      // 等待回复保存完成
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (e) {
+      console.error('发送回复失败:', e);
+    }
+  }
+
+  // 然后执行审批
+  await decide(id, action);
 }
 
 async function sendReply(id) {
@@ -1107,14 +1147,22 @@ async function initApp() {
   loadTunnelInfo();
   // 自动刷新兜底
   setInterval(() => {
-    // 如果用户正在输入框中打字，不要重新渲染
-    const activeEl = document.activeElement;
-    if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
-      return;
-    }
     fetch(API + '/api/pending', { headers: authHeaders() })
       .then(r => r.json())
-      .then(d => renderPending(d.pending || []))
+      .then(d => {
+        // 保存当前所有 textarea 的内容
+        const savedValues = {};
+        document.querySelectorAll('.reply-input').forEach(ta => {
+          if (ta.value) savedValues[ta.id] = ta.value;
+        });
+        // 重新渲染
+        renderPending(d.pending || []);
+        // 恢复保存的内容
+        Object.keys(savedValues).forEach(id => {
+          const ta = document.getElementById(id);
+          if (ta) ta.value = savedValues[id];
+        });
+      })
       .catch(() => {});
   }, 5000);
 }

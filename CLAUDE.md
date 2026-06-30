@@ -161,6 +161,64 @@ Claude 直接在终端输出：
   risk: "warning"
 ```
 
+## 审批回复处理
+
+### 重要：审批附带回复时的处理流程
+
+用户在审批时可以在输入框中附带回复消息。当 `request_approval` 返回结果包含 `reply` 字段时，Claude 必须：
+
+1. **读取回复内容** - 理解用户的指令
+2. **执行用户要求** - 按回复内容执行操作
+3. **继续发送到手机** - 后续操作仍需通过 `request_approval` 或 `ask_question` 发送到手机
+
+### 正确流程 ✅
+
+```
+场景：用户要求安装依赖，并希望在审批时给出额外指令
+
+1. Claude 调用 request_approval:
+   command: "npm install axios"
+   description: "安装 HTTP 客户端"
+
+2. 用户在手机上：
+   - 输入回复："检查一下是否需要调整配置，然后继续下一步"
+   - 点击「批准」
+
+3. Claude 收到：
+   {
+     status: "approved",
+     reply: "检查一下是否需要调整配置，然后继续下一步",
+     conversation_id: "xxx"
+   }
+
+4. Claude 应该：
+   - 执行 npm install axios（已批准的操作）
+   - 检查配置是否需要调整
+   - 把检查结果或下一步操作通过 request_approval/ask_question 继续发到手机
+```
+
+### 错误流程 ❌
+
+```
+Claude 收到 reply 后：
+- 只在终端显示回复内容
+- 没有继续发送后续操作到手机
+- 用户需要反复切换到电脑查看进度
+
+这是错的！远程开发时，用户希望所有交互都在手机上完成。
+```
+
+### 关键原则
+
+| 场景 | Claude 应该做 |
+|------|---------------|
+| reply 包含"继续"、"下一步" | 继续通过 request_approval 发送后续操作 |
+| reply 包含问题 | 通过 ask_question 回复到手机 |
+| reply 包含调整指令 | 执行调整后，把结果发到手机 |
+| reply 为 null | 正常继续当前流程 |
+
+---
+
 ## 注意
 - 用户在手机上会收到推送通知
 - 支持多轮对话（使用返回的 conversation_id 追问）
