@@ -1145,23 +1145,23 @@ async function loadTunnelInfo() {
 async function initApp() {
   connectSSE();
   loadTunnelInfo();
-  // 自动刷新兜底
+  // 自动刷新兜底（SSE 断开时仍能更新）
+  let lastPendingJSON = '';  // 上次渲染的数据快照，用于检测变化
   setInterval(() => {
+    // 如果用户正在输入框中打字，不要重新渲染（会丢失焦点，把人踢出输入状态）
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+      return;
+    }
     fetch(API + '/api/pending', { headers: authHeaders() })
       .then(r => r.json())
       .then(d => {
-        // 保存当前所有 textarea 的内容
-        const savedValues = {};
-        document.querySelectorAll('.reply-input').forEach(ta => {
-          if (ta.value) savedValues[ta.id] = ta.value;
-        });
-        // 重新渲染
-        renderPending(d.pending || []);
-        // 恢复保存的内容
-        Object.keys(savedValues).forEach(id => {
-          const ta = document.getElementById(id);
-          if (ta) ta.value = savedValues[id];
-        });
+        const list = d.pending || [];
+        // 数据没变化就不重渲染，避免无谓的 DOM 重建
+        const snapshot = JSON.stringify(list.map(r => r.id + ':' + r.status));
+        if (snapshot === lastPendingJSON) return;
+        lastPendingJSON = snapshot;
+        renderPending(list);
       })
       .catch(() => {});
   }, 5000);

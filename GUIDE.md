@@ -119,26 +119,42 @@ claude
 
 ## OpenCode 适配
 
-### 步骤 1：创建配置文件
+> ⚠️ OpenCode 不支持通过配置文件自动加载 MCP，需要通过初始化脚本配置。
 
-在项目根目录创建 `opencode.json`：
+### 步骤 1：运行初始化脚本
 
-```json
-{
-  "mcpServers": {
-    "approver": {
-      "command": "node",
-      "args": ["D:/projects/claude-approver/mcp-server.js"],
-      "env": {
-        "MCP_MODE": "1",
-        "PORT": "8765",
-        "NGROK_AUTH": "your_ngrok_token",
-        "MIAOTIXING_ID": "your_miao_code",
-        "PASSWORD": "test9876"
-      }
-    }
-  }
-}
+将 `init-opencode-mcp.bat` 复制到项目目录并运行：
+
+```batch
+.\init-opencode-mcp.bat
+```
+
+脚本会：
+1. 启动交互式 `opencode mcp add`（按提示输入 name=approver, type=Local, command=node）
+2. 自动补全 args 和 environment 到全局配置
+
+**init-opencode-mcp.bat 内容：**
+
+```batch
+@echo off
+echo ============================================
+echo   OpenCode MCP Approval Server Setup
+echo ============================================
+echo.
+echo Step 1: Adding MCP server (interactive)...
+echo   Name: approver
+echo   Type: Local
+echo   Command: node
+echo.
+opencode mcp add
+
+echo.
+echo Step 2: Updating config with full parameters...
+node -e "const fs=require('fs');const f=(process.env.USERPROFILE+'/.config/opencode/opencode.json').replace(/\\/g,'/');const c=JSON.parse(fs.readFileSync(f,'utf8'));c.mcp=c.mcp||{};c.mcp.approver={type:'local',command:['node','D:/projects/claude-approver/mcp-server.js'],environment:{MCP_MODE:'1',PORT:'8765',NGROK_AUTHTOKEN:'your_ngrok_token',MIAOTIXING_ID:'your_miao_code',DISABLE_PUSH:'false'}};fs.writeFileSync(f,JSON.stringify(c,null,2));console.log('Config updated!');"
+
+echo.
+echo Setup complete! Run: opencode
+pause
 ```
 
 ### 步骤 2：创建行为指南
@@ -154,17 +170,49 @@ claude
 
 ## 可用工具
 
-| 工具 | 用途 |
-|------|------|
-| request_approval | 请求用户批准操作（危险操作前使用） |
-| ask_question | 向用户提问（需要输入时使用） |
-| check_status | 查询请求状态 |
-| close_conversation | 结束对话 |
-| get_server_info | 获取服务器信息 |
+| 工具                 | 用途                |
+| ------------------ | ----------------- |
+| request_approval   | 请求用户批准操作（危险操作前使用） |
+| ask_question       | 向用户提问（需要输入时使用）    |
+| check_status       | 查询请求状态            |
+| close_conversation | 结束对话              |
+| get_server_info    | 获取服务器信息           |
+
+## 工具参数说明
+
+### request_approval
+
+| 参数          | 必填  | 说明                                       |
+| ----------- | --- | ---------------------------------------- |
+| command     | 是   | 要执行的命令（手机上显示为"命令"）                       |
+| description | 否   | 命令描述（手机上显示为"描述"）                         |
+| context     | 否   | 补充上下文信息                                  |
+| risk        | 否   | 风险等级：`normal`(默认) / `warning` / `danger` |
+
+### ask_question
+
+| 参数              | 必填  | 说明                           |
+| --------------- | --- | ---------------------------- |
+| question        | 是   | 问题内容（手机上显示为"问题"，**必须是实际问题**） |
+| context         | 否   | 补充说明（手机上显示为"说明"）             |
+| conversation_id | 否   | 追问时传入，用于关联同一对话               |
+
+### check_status
+
+| 参数         | 必填  | 说明    |
+| ---------- | --- | ----- |
+| request_id | 是   | 请求 ID |
+
+### close_conversation
+
+| 参数              | 必填  | 说明        |
+| --------------- | --- | --------- |
+| conversation_id | 是   | 要关闭的对话 ID |
 
 ## 何时使用
 
 ### request_approval（审批）
+
 - 删除文件/数据
 - 执行系统命令
 - 修改重要配置
@@ -172,26 +220,46 @@ claude
 - 安装依赖
 
 ### ask_question（提问）
+
 - 询问用户偏好
 - 提供选项让用户选择
 - 多轮对话确认
 
-## 正确流程 ✅
+## 正确流程
+
+### 审批示例
 
 用户: "帮我安装 axios"
 
-应该:
-1. 调用 request_approval({command: "npm install axios", risk: "normal"})
-2. 等待用户在手机上批准
-3. 批准后才执行
+```
+request_approval({
+  command: "npm install axios",
+  description: "安装 HTTP 请求库",
+  risk: "normal"
+})
+```
 
-## 错误流程 ❌
+### 提问示例
+
+用户: "今天天气如何"
+
+```
+ask_question({
+  question: "请问今天天气如何？",
+  context: "请告诉我您所在城市的天气情况"
+})
+```
+
+**注意：`question` 必须是实际问题内容，不能是工具名（如 "ask_question"）。**
+
+## 错误流程
 
 直接在终端弹出确认框 → 这是错的！
 
 ## 审批回复处理
 
 用户在审批时可以附带回复。当收到 reply 字段时：
+
 1. 理解回复内容
 2. 执行用户要求
 3. 继续通过 MCP 工具发送结果到手机
@@ -201,6 +269,18 @@ claude
 
 ```bash
 opencode
+```
+
+### 验证 MCP 连接
+
+```bash
+opencode mcp list
+```
+
+预期输出：
+```
+●  ✓ approver connected
+     node D:/projects/claude-approver/mcp-server.js
 ```
 
 ---
