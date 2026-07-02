@@ -24,8 +24,19 @@
 NGROK_AUTH=your_ngrok_token
 MIAOTIXING_ID=your_miao_code
 PORT=8765
-PASSWORD=test9876
 ```
+
+### 4. 可选：启用密码保护
+
+如果需要防止他人通过 ngrok 链接访问审批页面，可以配置密码：
+
+**方式一：在 config.env 中添加**
+```env
+AUTH_TOKEN=your_password_here
+```
+
+**方式二：首次访问网页时设置**
+- 直接访问审批页面，系统会提示设置密码
 
 ---
 
@@ -45,13 +56,14 @@ PASSWORD=test9876
         "MCP_MODE": "1",
         "PORT": "8765",
         "NGROK_AUTH": "your_ngrok_token",
-        "MIAOTIXING_ID": "your_miao_code",
-        "PASSWORD": "test9876"
+        "MIAOTIXING_ID": "your_miao_code"
       }
     }
   }
 }
 ```
+
+> 💡 如需密码保护，添加 `"AUTH_TOKEN": "your_password"` 到 env 中。
 
 ### 步骤 2：创建行为指南
 
