@@ -402,6 +402,119 @@ if (crashCount > 5) process.exit(1);
 
 ---
 
+### 第十轮：审批卡片增强（上下文 + 回复功能）
+
+**需求背景：**
+
+用户在手机上审批时，存在两个问题：
+1. 只看到命令和描述，缺乏背景信息，难以判断操作合理性
+2. 审批后无法同时给 Claude 下达新指令，需要来回切换
+
+**输入 Prompt：**
+
+```
+审批卡片需要增强：
+1. 新增 context 上下文参数，审批卡片显示背景信息（蓝色区域）
+2. 新增回复输入框，审批时可附带指令给 Claude
+3. request_approval 返回结果包含 reply 和 conversation_id
+4. 微信推送也包含 context 信息
+```
+
+**关键改动：**
+
+| 文件 | 改动 |
+|------|------|
+| mcp-server.js | 工具定义新增 `context` 参数；返回 `reply` 和 `conversation_id` |
+| server.js | 保存 context、前端渲染 context 区域；新增回复输入框、`decideWithReply` 函数 |
+
+**使用示例：**
+```json
+{
+  "command": "npm install axios",
+  "description": "安装 axios HTTP 客户端",
+  "context": "项目需要调用外部 REST API。axios 提供更简洁的 Promise API。",
+  "risk": "normal"
+}
+```
+
+**完整流程：**
+1. Claude 请求审批（带 context）→ 手机收到，看到背景说明
+2. 用户输入回复："检查配置是否需要调整" + 点击批准
+3. Claude 收到 `{status: "approved", reply: "检查配置..."}`
+4. Claude 执行安装 + 检查配置 + 把结果发回手机
+
+---
+
+### 第十一轮：修复回复输入框清空 bug
+
+**背景问题：**
+
+用户在审批卡片回复框输入内容后，等待几秒内容被自动清空。
+
+**原因分析：**
+
+前端每 5 秒轮询 `/api/pending` 并调用 `renderPending()` 重新渲染整个列表，`innerHTML` 赋值会清空 textarea 内容。虽然有焦点检测（正在输入时跳过），但用户停下来思考时焦点离开输入框，内容就被清空。
+
+**输入 Prompt：**
+
+```
+回复输入框等待一段时间后会清空，bug 原因：
+每 5 秒轮询重新渲染列表，textarea 内容丢失。
+
+修复方案：
+1. 渲染前保存所有 textarea 的当前值
+2. 渲染后恢复保存的值
+```
+
+**关键代码：**
+
+```javascript
+// 自动刷新时保存/恢复输入内容
+const savedValues = {};
+document.querySelectorAll('.reply-input').forEach(ta => {
+  if (ta.value) savedValues[ta.id] = ta.value;
+});
+renderPending(d.pending || []);
+Object.keys(savedValues).forEach(id => {
+  const ta = document.getElementById(id);
+  if (ta) ta.value = savedValues[id];
+});
+```
+
+---
+
+### 第十二轮：OpenCode 适配 + 文档完善
+
+**需求背景：**
+
+OpenCode 也是支持 MCP 协议的 AI 编程工具，用户希望审批系统也能适配 OpenCode。
+
+**输入 Prompt：**
+
+```
+生成 OpenCode 适配设计文档和使用指导书：
+1. DESIGN_OPENCODE_ADAPT.md - 可行性分析 + 配置说明
+2. GUIDE.md - Claude Code + OpenCode 完整适配步骤
+3. 指导书包含：前置准备、配置步骤、行为指南、验证测试
+```
+
+**核心结论：**
+
+| 组件 | 是否需要修改 | 说明 |
+|------|-------------|------|
+| server.js | ❌ 不需要 | HTTP 服务器通用 |
+| mcp-server.js | ❌ 不需要 | 已实现标准 MCP 协议 |
+| 配置文件 | ✅ 需要新增 | OpenCode 用 `opencode.json` |
+
+**产出文档：**
+
+| 文件 | 内容 |
+|------|------|
+| DESIGN_OPENCODE_ADAPT.md | OpenCode 适配可行性 + 配置示例 |
+| GUIDE.md | Claude Code + OpenCode 完整使用指导书 |
+
+---
+
 ## 5. 核心秘籍与避坑建议
 
 ### 核心秘籍
@@ -423,6 +536,11 @@ if (crashCount > 5) process.exit(1);
 **运维迭代（第八轮 ~ 第九轮）：**
 8. 推送通道迁移（Server酱 → 喵提醒）
 9. 自愈机制（崩溃自动重启 + 健康监控）
+
+**功能增强（第十轮 ~ 第十二轮）：**
+10. 审批卡片增强（上下文 + 回复功能）
+11. 修复回复输入框清空 bug
+12. OpenCode 适配 + 文档完善
 
 **实测效果：** 每轮生成 300-500 行代码，Agent 准确率高，不会出现"顾此失彼"的问题。相比一次性生成全部代码，bug 率降低约 70%。
 
@@ -458,6 +576,9 @@ if (crashCount > 5) process.exit(1);
 ...
 第 8 轮：推送通道失效 → 迁移到喵提醒
 第 9 轮：服务器崩溃 → 内置自愈机制
+第 10 轮：审批卡片增强（上下文 + 回复功能）
+第 11 轮：修复输入框清空 bug
+第 12 轮：OpenCode 适配 + 文档完善
 ```
 
 **实测效果：** 5-7 轮迭代后，系统达到生产可用水平。每轮耗时 5-15 分钟，总计 1-2 小时完成全部功能。
