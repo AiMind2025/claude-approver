@@ -330,6 +330,7 @@ function createRequest({ command, description, context, risk, type, conversation
   if (reqType === 'question') {
     title = conversationId ? '💬 Claude 追问' : '💬 Claude 提问';
     desp = `**问题:**\n${command}\n\n**说明:** ${description || '无'}`;
+    if (context) desp += `\n\n**上下文:**\n${context}`;
   } else {
     const riskEmoji = { normal: '🟢', warning: '🟡', danger: '🔴' }[risk] || '🟢';
     title = `${riskEmoji} Claude 请求审批`;
@@ -937,10 +938,13 @@ function renderPending(list) {
 
       // 显示描述/选项（如果有）
       const descHtml = r.description ? \`<div class="desc desc-options">\${esc(r.description).replace(/\\n/g, '<br>')}</div>\` : '';
+      // 显示上下文（如果有）
+      const contextHtml = r.context ? \`<div class="context">📝 \${esc(r.context).replace(/\\n/g, '<br>')}</div>\` : '';
 
       return \`
         <div class="card card-question" id="card-\${r.id}">
           <div class="question-header">💬 Claude 提问</div>
+          \${contextHtml}
           \${descHtml}
           <div class="messages">\${messages}</div>
           <div class="reply-box">
