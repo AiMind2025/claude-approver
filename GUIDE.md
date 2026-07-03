@@ -1,42 +1,72 @@
 # 手机审批服务器 - 适配指南
 
+> 💡 **本指南面向零基础用户**，按步骤操作即可完成配置。
+
+---
+
 ## 前置准备
 
-### 1. 环境要求
+### 1. 安装依赖
 
-| 依赖 | 版本要求 |
+| 依赖 | 安装方式 |
 |------|----------|
-| Node.js | >= 18.0 |
-| ngrok | 最新版 |
+| Node.js | [下载地址](https://nodejs.org/) 安装 >= 18.0 版本 |
+| ngrok | [下载地址](https://ngrok.com/download) 安装最新版 |
 
 ### 2. 获取凭证
 
 | 凭证 | 获取方式 |
 |------|----------|
-| 喵码 | [喵提醒](https://miaotixing.com) 扫码关注获取 |
-| ngrok Token | [ngrok Dashboard](https://ngrok.com) 注册获取 |
+| 喵码 | 微信扫码关注 [喵提醒](https://miaotixing.com)，自动回复中获取 |
+| ngrok Token | 注册 [ngrok](https://ngrok.com) 后在 Dashboard 页面复制 |
 
-### 3. 配置环境变量
+### 3. 下载本项目
 
-创建 `config.env`：
+```bash
+# 方式一：Git 克隆
+git clone https://github.com/AiMind2025/claude-approver.git
+cd claude-approver
+
+# 方式二：直接下载 ZIP
+# 访问 https://github.com/AiMind2025/claude-approver 点击 Code -> Download ZIP
+# 解压后进入目录
+```
+
+### 4. 创建配置文件
+
+> 📍 **文件位置**：在项目根目录（和 `server.js` 同一层）创建 `config.env` 文件
+
+```
+claude-approver/
+├── server.js          ← 服务器主程序
+├── mcp-server.js      ← MCP 协议层
+├── config.env         ← ⭐ 在这里创建配置文件
+├── .mcp.json          ← Claude Code 配置
+└── ...
+```
+
+**config.env 内容：**
 
 ```env
-NGROK_AUTH=your_ngrok_token
-MIAOTIXING_ID=your_miao_code
+# 必填项（替换为你自己的值）
+NGROK_AUTHTOKEN=你的ngrok_token
+MIAOTIXING_ID=你的喵码
+
+# 可选项
+PORT=8765                    # 端口号，默认 8765
+PASSWORD=your_password       # 可选：设置访问密码
+```
+
+**示例：**
+
+```env
+NGROK_AUTHTOKEN=3F1BLtB4xgDGhoMIuhAqPlYfINA_3ZMwvFowT47ypA47TmYNK
+MIAOTIXING_ID=your_miao_code_here
 PORT=8765
+PASSWORD=your_password_here
 ```
 
-### 4. 可选：启用密码保护
-
-如果需要防止他人通过 ngrok 链接访问审批页面，可以配置密码：
-
-**方式一：在 config.env 中添加**
-```env
-AUTH_TOKEN=your_password_here
-```
-
-**方式二：首次访问网页时设置**
-- 直接访问审批页面，系统会提示设置密码
+> ⚠️ **注意**：不需要手动启动服务器！Claude Code / OpenCode 会自动启动 MCP 服务器。
 
 ---
 
