@@ -79,7 +79,7 @@ MIAOTIXING_ID=你的喵码
 
 ### Claude Code 用户
 
-**5.1 创建 `.mcp.json`：**
+**5.1 在项目根目录创建 `.mcp.json`：**
 
 ```json
 {
@@ -97,7 +97,7 @@ MIAOTIXING_ID=你的喵码
 
 > ⚠️ 把 `D:/你的路径/` 替换为实际路径
 
-**5.2 创建 `CLAUDE.md`：**
+**5.2 在项目根目录创建 `CLAUDE.md`：**
 
 ```markdown
 # Claude 手机审批指南
@@ -161,9 +161,9 @@ claude
 
 ### OpenCode 用户
 
-**5.1 创建并运行初始化脚本：**
+**5.1 在项目根目录创建并运行初始化脚本：**
 
-创建 `init-opencode-mcp.bat`：
+创建 `init-opencode-mcp.bat`（项目根目录）：
 
 ```batch
 @echo off
@@ -198,7 +198,7 @@ pause
 - type: `Local`  
 - command: `node`
 
-**5.2 创建 `AGENTS.md`：**
+**5.2 在项目根目录创建 `AGENTS.md`：**
 
 ````markdown
 # OpenCode 手机审批指南
