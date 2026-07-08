@@ -8,10 +8,32 @@
 
 ### 1. 安装依赖
 
-| 依赖 | 安装方式 |
-|------|----------|
-| Node.js | [下载地址](https://nodejs.org/) 安装 >= 18.0 版本 |
-| ngrok | 方式一：[下载地址](https://ngrok.com/download)（⚠️ 需梯子）<br>方式二：直接下载 `curl -L -o ngrok.zip "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"` 解压到任意目录 |
+#### Node.js
+
+[下载地址](https://nodejs.org/) 安装 >= 18.0 版本
+
+#### ngrok
+
+**方式一：官网下载**（⚠️ 需梯子）
+
+访问 [ngrok.com/download](https://ngrok.com/download) 下载最新版
+
+**方式二：直接下载**（无需梯子）
+
+```bash
+# 下载
+curl -L -o ngrok.zip "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"
+
+# 解压到项目目录
+unzip ngrok.zip -d claude-approver/
+```
+
+**配置 authtoken**（获取 Token 需梯子访问 ngrok.com）
+
+```bash
+# 在项目目录执行
+./ngrok.exe authtoken 你的ngrok_token
+```
 
 > 💡 **提示**：ngrok 下载不需要梯子，但注册账号获取 Token 需要梯子访问 ngrok.com
 
