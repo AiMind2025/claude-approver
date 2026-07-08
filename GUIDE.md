@@ -11,14 +11,16 @@
 | 依赖 | 安装方式 |
 |------|----------|
 | Node.js | [下载地址](https://nodejs.org/) 安装 >= 18.0 版本 |
-| ngrok | [下载地址](https://ngrok.com/download) 安装最新版 |
+| ngrok | 方式一：[下载地址](https://ngrok.com/download)（⚠️ 需梯子）<br>方式二：直接下载 `curl -L -o ngrok.zip "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip"` 解压到任意目录 |
+
+> 💡 **提示**：ngrok 下载不需要梯子，但注册账号获取 Token 需要梯子访问 ngrok.com
 
 ### 2. 获取凭证
 
 | 凭证 | 获取方式 |
 |------|----------|
 | 喵码 | 微信扫码关注 [喵提醒](https://miaotixing.com)，自动回复中获取 |
-| ngrok Token | 注册 [ngrok](https://ngrok.com) 后在 Dashboard 页面复制 |
+| ngrok Token | 注册 [ngrok](https://ngrok.com) 后在 Dashboard 页面复制（⚠️ 需梯子访问） |
 
 ### 3. 下载本项目
 
@@ -60,7 +62,7 @@ PASSWORD=your_password       # 可选：设置访问密码
 **示例：**
 
 ```env
-NGROK_AUTHTOKEN=3F1BLtB4xgDGhoMIuhAqPlYfINA_3ZMwvFowT47ypA47TmYNK
+NGROK_AUTHTOKEN=3F1BLtB4xgDGhoMIuhAqP***
 MIAOTIXING_ID=your_miao_code_here
 PORT=8765
 PASSWORD=your_password_here
