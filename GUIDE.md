@@ -53,7 +53,18 @@ unzip ngrok.zip
 
 ## 第四步：创建配置文件
 
-在项目根目录创建 `config.env`：
+> 📍 **文件位置**：在项目根目录（和 `server.js` 同一层）创建 `config.env`
+
+```
+claude-approver/
+├── server.js          ← 服务器主程序
+├── mcp-server.js      ← MCP 协议层
+├── config.env         ← ⭐ 在这里创建
+├── .mcp.json          ← Claude Code 配置
+└── ...
+```
+
+**config.env 内容：**
 
 ```env
 NGROK_AUTHTOKEN=你的ngrok_token
