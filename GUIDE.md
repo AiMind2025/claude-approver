@@ -45,7 +45,8 @@ unzip ngrok.zip
 **配置 Token：**
 
 ```bash
-ngrok authtoken 你的Token
+# 在项目目录下执行（ngrok.exe 所在目录）
+.\ngrok.exe authtoken 你的Token
 ```
 
 ---
