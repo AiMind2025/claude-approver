@@ -79,7 +79,9 @@ MIAOTIXING_ID=你的喵码
 
 ### Claude Code 用户
 
-**5.1 在项目根目录创建 `.mcp.json`：**
+**5.1 在你的项目目录下创建 `.mcp.json`：**
+
+> 📍 例如你在 `D:/my-project` 下使用 Claude Code，就在这个目录创建
 
 ```json
 {
@@ -97,7 +99,9 @@ MIAOTIXING_ID=你的喵码
 
 > ⚠️ 把 `D:/你的路径/` 替换为实际路径
 
-**5.2 在项目根目录创建 `CLAUDE.md`：**
+**5.2 在你的项目目录下创建 `CLAUDE.md`：**
+
+> 📍 和 `.mcp.json` 同一目录
 
 ```markdown
 # Claude 手机审批指南
@@ -161,35 +165,10 @@ claude
 
 ### OpenCode 用户
 
-**5.1 在项目根目录创建并运行初始化脚本：**
-
-创建 `init-opencode-mcp.bat`（项目根目录）：
-
-```batch
-@echo off
-echo ============================================
-echo   OpenCode MCP Approval Server Setup
-echo ============================================
-echo.
-echo Step 1: Adding MCP server (interactive)...
-echo   Name: approver
-echo   Type: Local
-echo   Command: node
-echo.
-opencode mcp add
-
-echo.
-echo Step 2: Updating config with full parameters...
-node -e "const fs=require('fs');const f=(process.env.USERPROFILE+'/.config/opencode/opencode.json').replace(/\\/g,'/');const c=JSON.parse(fs.readFileSync(f,'utf8'));c.mcp=c.mcp||{};c.mcp.approver={type:'local',command:['node','D:/projects/claude-approver/mcp-server.js'],environment:{MCP_MODE:'1',PORT:'8765',NGROK_AUTHTOKEN:'your_ngrok_token',MIAOTIXING_ID:'your_miao_code',DISABLE_PUSH:'false'}};fs.writeFileSync(f,JSON.stringify(c,null,2));console.log('Config updated!');"
-
-echo.
-echo Setup complete! Run: opencode
-pause
-```
-
-运行脚本：
+**5.1 运行初始化脚本：**
 
 ```bash
+# 在 claude-approver 目录下运行
 .\init-opencode-mcp.bat
 ```
 
@@ -198,7 +177,9 @@ pause
 - type: `Local`  
 - command: `node`
 
-**5.2 在项目根目录创建 `AGENTS.md`：**
+**5.2 在你的项目目录下创建 `AGENTS.md`：**
+
+> 📍 和 OpenCode 启动目录一致
 
 ````markdown
 # OpenCode 手机审批指南
