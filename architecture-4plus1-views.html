@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude 审批服务器 - 4+1 视图</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: white;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #22d3ee;
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .view-section {
+      margin-bottom: 3rem;
+    }
+    .view-header {
+      display: flex; align-items: center; gap: 1rem;
+      margin-bottom: 1rem; padding-bottom: 0.5rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .view-number {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 1rem;
+    }
+    .view-number.v1 { background: rgba(34, 211, 238, 0.2); color: #22d3ee; border: 1px solid #22d3ee; }
+    .view-number.v2 { background: rgba(52, 211, 153, 0.2); color: #34d399; border: 1px solid #34d399; }
+    .view-number.v3 { background: rgba(251, 191, 36, 0.2); color: #fbbf24; border: 1px solid #fbbf24; }
+    .view-number.v4 { background: rgba(167, 139, 250, 0.2); color: #a78bfa; border: 1px solid #a78bfa; }
+    .view-number.v5 { background: rgba(251, 113, 133, 0.2); color: #fb7185; border: 1px solid #fb7185; }
+    .view-title { font-size: 1.1rem; font-weight: 600; }
+    .view-subtitle { color: #94a3b8; font-size: 0.75rem; margin-left: auto; }
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5); border-radius: 1rem;
+      border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 800px; display: block; }
+    .view-desc {
+      margin-top: 1rem; padding: 1rem;
+      background: rgba(30, 41, 59, 0.5); border-radius: 0.5rem;
+      font-size: 0.8rem; color: #94a3b8; line-height: 1.6;
+    }
+    .view-desc strong { color: #e2e8f0; }
+    .footer { text-align: center; margin-top: 2rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle {
+      background: transparent; border: none; color: #475569; cursor: pointer;
+      font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem; transition: color 0.2s, background 0.2s;
+    }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button {
+      background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8;
+      padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit;
+      font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap;
+    }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print {
+      body { background: #020617; padding: 1rem; }
+      .toolbar { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Claude 审批服务器 — 4+1 架构视图</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export" aria-label="Export">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">基于 Kruchten 4+1 视图模型，从 5 个维度完整描述系统架构</p>
+    </div>
+
+    <!-- ================================================================
+         视图 1: 逻辑视图 (Logical View)
+         ================================================================ -->
+    <div class="view-section">
+      <div class="view-header">
+        <div class="view-number v1">1</div>
+        <div class="view-title">逻辑视图 (Logical View)</div>
+        <div class="view-subtitle">功能分解 · 模块职责</div>
+      </div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 900 480">
+          <defs>
+            <marker id="a1" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="a1c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+            <pattern id="g1" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g1)"/>
+
+          <!-- 用户层 -->
+          <rect x="320" y="15" width="260" height="50" rx="6" fill="#0f172a"/>
+          <rect x="320" y="15" width="260" height="50" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="450" y="37" fill="white" font-size="12" font-weight="600" text-anchor="middle">用户 (Developer)</text>
+          <text x="450" y="52" fill="#94a3b8" font-size="8" text-anchor="middle">发起开发任务 · 远程审批</text>
+
+          <!-- AI 客户端 -->
+          <rect x="320" y="90" width="260" height="50" rx="6" fill="#0f172a"/>
+          <rect x="320" y="90" width="260" height="50" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="450" y="112" fill="white" font-size="11" font-weight="600" text-anchor="middle">AI 编程助手</text>
+          <text x="450" y="128" fill="#94a3b8" font-size="8" text-anchor="middle">Claude Code / OpenCode</text>
+
+          <!-- MCP 工具接口 -->
+          <rect x="320" y="165" width="260" height="50" rx="6" fill="#0f172a"/>
+          <rect x="320" y="165" width="260" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="450" y="187" fill="white" font-size="11" font-weight="600" text-anchor="middle">MCP 工具接口</text>
+          <text x="450" y="203" fill="#94a3b8" font-size="8" text-anchor="middle">request_approval · ask_question · ...</text>
+
+          <!-- 核心服务 -->
+          <rect x="100" y="250" width="700" height="100" rx="8" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="115" y="268" fill="#34d399" font-size="9" font-weight="600">核心服务层</text>
+
+          <!-- 请求管理 -->
+          <rect x="120" y="280" width="160" height="55" rx="6" fill="#0f172a"/>
+          <rect x="120" y="280" width="160" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="200" y="302" fill="white" font-size="10" font-weight="600" text-anchor="middle">请求管理</text>
+          <text x="200" y="318" fill="#94a3b8" font-size="7" text-anchor="middle">createRequest · decideRequest</text>
+          <text x="200" y="328" fill="#94a3b8" font-size="7" text-anchor="middle">replyRequest · closeConversation</text>
+
+          <!-- HTTP API -->
+          <rect x="300" y="280" width="160" height="55" rx="6" fill="#0f172a"/>
+          <rect x="300" y="280" width="160" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="380" y="302" fill="white" font-size="10" font-weight="600" text-anchor="middle">HTTP API</text>
+          <text x="380" y="318" fill="#94a3b8" font-size="7" text-anchor="middle">13 个 REST 端点</text>
+          <text x="380" y="328" fill="#94a3b8" font-size="7" text-anchor="middle">SSE 实时推送</text>
+
+          <!-- 前端界面 -->
+          <rect x="480" y="280" width="160" height="55" rx="6" fill="#0f172a"/>
+          <rect x="480" y="280" width="160" height="55" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="560" y="302" fill="white" font-size="10" font-weight="600" text-anchor="middle">前端界面</text>
+          <text x="560" y="318" fill="#94a3b8" font-size="7" text-anchor="middle">HTML SPA · 暗色主题</text>
+          <text x="560" y="328" fill="#94a3b8" font-size="7" text-anchor="middle">审批卡片 · 对话界面</text>
+
+          <!-- 安全模块 -->
+          <rect x="660" y="280" width="120" height="55" rx="6" fill="#0f172a"/>
+          <rect x="660" y="280" width="120" height="55" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="720" y="302" fill="white" font-size="10" font-weight="600" text-anchor="middle">安全 &amp; 自愈</text>
+          <text x="720" y="318" fill="#94a3b8" font-size="7" text-anchor="middle">鉴权 · 健康检查</text>
+          <text x="720" y="328" fill="#94a3b8" font-size="7" text-anchor="middle">崩溃自动重启</text>
+
+          <!-- 外部服务层 -->
+          <rect x="100" y="380" width="700" height="80" rx="8" fill="rgba(30, 41, 59, 0.15)" stroke="#94a3b8" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="115" y="398" fill="#94a3b8" font-size="9" font-weight="600">外部服务适配层</text>
+
+          <rect x="130" y="410" width="140" height="40" rx="6" fill="#0f172a"/>
+          <rect x="130" y="410" width="140" height="40" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="200" y="432" fill="white" font-size="10" text-anchor="middle">ngrok 隧道</text>
+
+          <rect x="290" y="410" width="140" height="40" rx="6" fill="#0f172a"/>
+          <rect x="290" y="410" width="140" height="40" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="360" y="432" fill="white" font-size="10" text-anchor="middle">喵提醒推送</text>
+
+          <rect x="450" y="410" width="140" height="40" rx="6" fill="#0f172a"/>
+          <rect x="450" y="410" width="140" height="40" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="520" y="432" fill="white" font-size="10" text-anchor="middle">SMTP 邮件</text>
+
+          <rect x="610" y="410" width="160" height="40" rx="6" fill="#0f172a"/>
+          <rect x="610" y="410" width="160" height="40" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="690" y="432" fill="white" font-size="10" text-anchor="middle">JSON 持久化</text>
+
+          <!-- 手机 -->
+          <rect x="320" y="485" width="260" height="45" rx="6" fill="#0f172a"/>
+          <rect x="320" y="485" width="260" height="45" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="450" y="507" fill="white" font-size="11" font-weight="600" text-anchor="middle">手机浏览器</text>
+          <text x="450" y="520" fill="#94a3b8" font-size="8" text-anchor="middle">审批操作 · 回复消息</text>
+
+          <!-- Arrows -->
+          <line x1="450" y1="65" x2="450" y2="88" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a1c)"/>
+          <line x1="450" y1="140" x2="450" y2="163" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a1c)"/>
+          <line x1="450" y1="215" x2="450" y2="248" stroke="#34d399" stroke-width="1.2" marker-end="url(#a1)"/>
+          <line x1="450" y1="350" x2="450" y2="378" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#a1)"/>
+          <line x1="450" y1="460" x2="450" y2="483" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a1c)"/>
+
+          <!-- 内部连接 -->
+          <line x1="280" y1="305" x2="298" y2="305" stroke="#34d399" stroke-width="1" marker-end="url(#a1)"/>
+          <line x1="460" y1="305" x2="478" y2="305" stroke="#34d399" stroke-width="1" marker-end="url(#a1)"/>
+          <line x1="640" y1="305" x2="658" y2="305" stroke="#fb7185" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#a1)"/>
+        </svg>
+      </div>
+      <div class="view-desc">
+        <strong>逻辑视图</strong>关注系统的功能分解。核心分为 5 层：<strong>用户层</strong>发起任务和审批；<strong>AI 客户端</strong>调用 MCP 工具；<strong>核心服务层</strong>包含请求管理、HTTP API、前端界面、安全模块；<strong>外部服务适配层</strong>抽象了 ngrok、推送、持久化等外部依赖；最终由<strong>手机浏览器</strong>完成用户交互。
+      </div>
+    </div>
+
+    <!-- ================================================================
+         视图 2: 开发视图 (Development View)
+         ================================================================ -->
+    <div class="view-section">
+      <div class="view-header">
+        <div class="view-number v2">2</div>
+        <div class="view-title">开发视图 (Development View)</div>
+        <div class="view-subtitle">代码结构 · 文件依赖</div>
+      </div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 900 520">
+          <defs>
+            <marker id="a2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="a2e" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+            </marker>
+            <marker id="a2o" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb923c"/>
+            </marker>
+            <pattern id="g2" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g2)"/>
+
+          <!-- 项目根目录 -->
+          <rect x="30" y="20" width="840" height="480" rx="10" fill="rgba(6, 78, 59, 0.05)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+          <text x="45" y="40" fill="#34d399" font-size="10" font-weight="600">claude-approver/</text>
+
+          <!-- 核心代码 -->
+          <rect x="50" y="55" width="380" height="200" rx="8" fill="rgba(6, 78, 59, 0.1)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="65" y="73" fill="#34d399" font-size="9" font-weight="600">核心代码</text>
+
+          <!-- server.js -->
+          <rect x="70" y="85" width="160" height="70" rx="6" fill="#0f172a"/>
+          <rect x="70" y="85" width="160" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="150" y="107" fill="white" font-size="11" font-weight="600" text-anchor="middle">server.js</text>
+          <text x="150" y="122" fill="#94a3b8" font-size="7" text-anchor="middle">1464 行 · HTTP 核心</text>
+          <text x="150" y="135" fill="#94a3b8" font-size="7" text-anchor="middle">API · HTML · 自愈 · 推送</text>
+          <text x="150" y="148" fill="#34d399" font-size="7" text-anchor="middle">module.exports</text>
+
+          <!-- mcp-server.js -->
+          <rect x="250" y="85" width="160" height="70" rx="6" fill="#0f172a"/>
+          <rect x="250" y="85" width="160" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="330" y="107" fill="white" font-size="11" font-weight="600" text-anchor="middle">mcp-server.js</text>
+          <text x="330" y="122" fill="#94a3b8" font-size="7" text-anchor="middle">507 行 · MCP 协议层</text>
+          <text x="330" y="135" fill="#94a3b8" font-size="7" text-anchor="middle">工具定义 · JSON-RPC</text>
+          <text x="330" y="148" fill="#34d399" font-size="7" text-anchor="middle">require('./server.js')</text>
+
+          <!-- package.json -->
+          <rect x="70" y="170" width="120" height="40" rx="4" fill="#0f172a"/>
+          <rect x="70" y="170" width="120" height="40" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="130" y="192" fill="white" font-size="9" text-anchor="middle">package.json</text>
+
+          <!-- node_modules -->
+          <rect x="200" y="170" width="120" height="40" rx="4" fill="#0f172a"/>
+          <rect x="200" y="170" width="120" height="40" rx="4" fill="rgba(30, 41, 59, 0.3)" stroke="#64748b" stroke-width="1"/>
+          <text x="260" y="192" fill="#94a3b8" font-size="9" text-anchor="middle">node_modules/</text>
+
+          <!-- 配置文件 -->
+          <rect x="460" y="55" width="390" height="110" rx="8" fill="rgba(251, 146, 60, 0.08)" stroke="#fb923c" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="475" y="73" fill="#fb923c" font-size="9" font-weight="600">配置文件 (不入 git)</text>
+
+          <rect x="480" y="85" width="110" height="35" rx="4" fill="#0f172a"/>
+          <rect x="480" y="85" width="110" height="35" rx="4" fill="rgba(251, 146, 60, 0.2)" stroke="#fb923c" stroke-width="1"/>
+          <text x="535" y="106" fill="white" font-size="9" text-anchor="middle">.mcp.json</text>
+
+          <rect x="600" y="85" width="110" height="35" rx="4" fill="#0f172a"/>
+          <rect x="600" y="85" width="110" height="35" rx="4" fill="rgba(251, 146, 60, 0.2)" stroke="#fb923c" stroke-width="1"/>
+          <text x="655" y="106" fill="white" font-size="9" text-anchor="middle">config.env</text>
+
+          <rect x="720" y="85" width="110" height="35" rx="4" fill="#0f172a"/>
+          <rect x="720" y="85" width="110" height="35" rx="4" fill="rgba(136, 19, 55, 0.3)" stroke="#fb7185" stroke-width="1"/>
+          <text x="775" y="106" fill="white" font-size="9" text-anchor="middle">CLAUDE.md</text>
+
+          <rect x="480" y="130" width="110" height="35" rx="4" fill="#0f172a"/>
+          <rect x="480" y="130" width="110" height="35" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="535" y="151" fill="white" font-size="9" text-anchor="middle">.gitignore</text>
+
+          <!-- 脚本文件 -->
+          <rect x="50" y="270" width="380" height="130" rx="8" fill="rgba(251, 146, 60, 0.05)" stroke="#fb923c" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="65" y="288" fill="#fb923c" font-size="9" font-weight="600">辅助脚本</text>
+
+          <rect x="70" y="300" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="70" y="300" width="100" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="120" y="318" fill="white" font-size="8" text-anchor="middle">start.bat</text>
+
+          <rect x="180" y="300" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="180" y="300" width="100" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="230" y="318" fill="white" font-size="8" text-anchor="middle">approve.sh</text>
+
+          <rect x="290" y="300" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="290" y="300" width="100" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="340" y="318" fill="white" font-size="8" text-anchor="middle">ask.sh</text>
+
+          <rect x="70" y="340" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="70" y="340" width="100" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="120" y="358" fill="white" font-size="8" text-anchor="middle">test.sh</text>
+
+          <rect x="180" y="340" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="180" y="340" width="100" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="230" y="358" fill="white" font-size="8" text-anchor="middle">check-env.sh</text>
+
+          <rect x="290" y="340" width="130" height="30" rx="4" fill="#0f172a"/>
+          <rect x="290" y="340" width="130" height="30" rx="4" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="355" y="358" fill="white" font-size="8" text-anchor="middle">install-ngrok.bat</text>
+
+          <!-- 数据目录 -->
+          <rect x="460" y="180" width="390" height="90" rx="8" fill="rgba(76, 29, 149, 0.1)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="475" y="198" fill="#a78bfa" font-size="9" font-weight="600">运行时数据 (.data/)</text>
+
+          <rect x="480" y="210" width="160" height="45" rx="6" fill="#0f172a"/>
+          <rect x="480" y="210" width="160" height="45" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="560" y="230" fill="white" font-size="9" font-weight="600" text-anchor="middle">requests.json</text>
+          <text x="560" y="245" fill="#94a3b8" font-size="7" text-anchor="middle">pending[] + completed[]</text>
+
+          <rect x="660" y="210" width="160" height="45" rx="6" fill="#0f172a"/>
+          <rect x="660" y="210" width="160" height="45" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="740" y="230" fill="white" font-size="9" font-weight="600" text-anchor="middle">auth.json</text>
+          <text x="740" y="245" fill="#94a3b8" font-size="7" text-anchor="middle">token + created</text>
+
+          <!-- 文档 -->
+          <rect x="460" y="290" width="390" height="110" rx="8" fill="rgba(8, 51, 68, 0.1)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="475" y="308" fill="#22d3ee" font-size="9" font-weight="600">文档</text>
+
+          <rect x="480" y="320" width="80" height="30" rx="4" fill="#0f172a"/>
+          <rect x="480" y="320" width="80" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="520" y="338" fill="white" font-size="8" text-anchor="middle">README.md</text>
+
+          <rect x="570" y="320" width="80" height="30" rx="4" fill="#0f172a"/>
+          <rect x="570" y="320" width="80" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="610" y="338" fill="white" font-size="8" text-anchor="middle">DESIGN.md</text>
+
+          <rect x="660" y="320" width="80" height="30" rx="4" fill="#0f172a"/>
+          <rect x="660" y="320" width="80" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="700" y="338" fill="white" font-size="8" text-anchor="middle">GUIDE.md</text>
+
+          <rect x="750" y="320" width="80" height="30" rx="4" fill="#0f172a"/>
+          <rect x="750" y="320" width="80" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="790" y="338" fill="white" font-size="8" text-anchor="middle">MCP_CONFIG</text>
+
+          <rect x="480" y="360" width="100" height="30" rx="4" fill="#0f172a"/>
+          <rect x="480" y="360" width="100" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="530" y="378" fill="white" font-size="8" text-anchor="middle">TEST_CASES.md</text>
+
+          <!-- 依赖箭头 -->
+          <line x1="330" y1="155" x2="230" y2="155" stroke="#34d399" stroke-width="1.2" marker-end="url(#a2e)"/>
+          <text x="280" y="148" fill="#34d399" font-size="7" text-anchor="middle">require()</text>
+
+          <line x1="150" y1="155" x2="150" y2="168" stroke="#64748b" stroke-width="1" marker-end="url(#a2)"/>
+
+          <!-- 图例 -->
+          <rect x="50" y="420" width="800" height="70" rx="6" fill="rgba(15, 23, 42, 0.8)" stroke="#1e293b" stroke-width="1"/>
+          <text x="70" y="440" fill="white" font-size="9" font-weight="600">文件类型</text>
+          <rect x="70" y="450" width="12" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
+          <text x="90" y="458" fill="#94a3b8" font-size="7">核心代码</text>
+          <rect x="160" y="450" width="12" height="10" rx="2" fill="rgba(251, 146, 60, 0.2)" stroke="#fb923c" stroke-width="1"/>
+          <text x="180" y="458" fill="#94a3b8" font-size="7">配置</text>
+          <rect x="230" y="450" width="12" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+          <text x="250" y="458" fill="#94a3b8" font-size="7">数据</text>
+          <rect x="300" y="450" width="12" height="10" rx="2" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="320" y="458" fill="#94a3b8" font-size="7">文档</text>
+          <rect x="380" y="450" width="12" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
+          <text x="400" y="458" fill="#94a3b8" font-size="7">脚本</text>
+          <text x="500" y="458" fill="#64748b" font-size="7">.mcp.json / config.env / .data/ 均不入 git (见 .gitignore)</text>
+        </svg>
+      </div>
+      <div class="view-desc">
+        <strong>开发视图</strong>展示代码组织和模块依赖。核心只有两个 JS 文件：<strong>mcp-server.js</strong> 通过 <code>require()</code> 导入 <strong>server.js</strong>，复用其全部功能。配置文件 (<code>.mcp.json</code>, <code>config.env</code>) 含敏感信息，通过 <code>.gitignore</code> 排除。数据文件 (<code>.data/*.json</code>) 也不入版本控制。
+      </div>
+    </div>
+
+    <!-- ================================================================
+         视图 3: 进程视图 (Process View)
+         ================================================================ -->
+    <div class="view-section">
+      <div class="view-header">
+        <div class="view-number v3">3</div>
+        <div class="view-title">进程视图 (Process View)</div>
+        <div class="view-subtitle">运行时进程 · 并发 · 通信</div>
+      </div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 900 520">
+          <defs>
+            <marker id="a3" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="a3y" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+            </marker>
+            <marker id="a3c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+            <marker id="a3e" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+            </marker>
+            <pattern id="g3" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g3)"/>
+
+          <!-- Claude Code 进程 -->
+          <rect x="50" y="30" width="200" height="70" rx="8" fill="#0f172a"/>
+          <rect x="50" y="30" width="200" height="70" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="150" y="55" fill="white" font-size="11" font-weight="600" text-anchor="middle">Claude Code 进程</text>
+          <text x="150" y="72" fill="#94a3b8" font-size="8" text-anchor="middle">MCP Client</text>
+          <text x="150" y="86" fill="#22d3ee" font-size="7" text-anchor="middle">stdio (JSON-RPC 2.0)</text>
+
+          <!-- MCP Server 主进程 -->
+          <rect x="350" y="20" width="500" height="200" rx="10" fill="rgba(6, 78, 59, 0.08)" stroke="#34d399" stroke-width="1.5" stroke-dasharray="8,4"/>
+          <text x="365" y="40" fill="#34d399" font-size="10" font-weight="600">Node.js 主进程 (PID: xxxx)</text>
+          <text x="700" y="40" fill="#34d399" font-size="8">mcp-server.js → server.js</text>
+
+          <!-- stdin 处理 -->
+          <rect x="370" y="55" width="140" height="50" rx="6" fill="#0f172a"/>
+          <rect x="370" y="55" width="140" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="440" y="77" fill="white" font-size="10" font-weight="600" text-anchor="middle">stdin 解析器</text>
+          <text x="440" y="92" fill="#94a3b8" font-size="7" text-anchor="middle">JSON-RPC 消息路由</text>
+
+          <!-- HTTP Server -->
+          <rect x="530" y="55" width="140" height="50" rx="6" fill="#0f172a"/>
+          <rect x="530" y="55" width="140" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="600" y="77" fill="white" font-size="10" font-weight="600" text-anchor="middle">HTTP Server</text>
+          <text x="600" y="92" fill="#94a3b8" font-size="7" text-anchor="middle">:8765 · 异步 I/O</text>
+
+          <!-- 阻塞等待 -->
+          <rect x="690" y="55" width="140" height="50" rx="6" fill="#0f172a"/>
+          <rect x="690" y="55" width="140" height="50" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="760" y="77" fill="white" font-size="10" font-weight="600" text-anchor="middle">阻塞等待循环</text>
+          <text x="760" y="92" fill="#94a3b8" font-size="7" text-anchor="middle">waitForStatus() 1s 轮询</text>
+
+          <!-- 定时器 -->
+          <rect x="370" y="120" width="140" height="45" rx="6" fill="#0f172a"/>
+          <rect x="370" y="120" width="140" height="45" rx="6" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="440" y="140" fill="white" font-size="9" font-weight="600" text-anchor="middle">健康监控定时器</text>
+          <text x="440" y="155" fill="#fbbf24" font-size="7" text-anchor="middle">setInterval 60s</text>
+
+          <!-- SSE 连接池 -->
+          <rect x="530" y="120" width="140" height="45" rx="6" fill="#0f172a"/>
+          <rect x="530" y="120" width="140" height="45" rx="6" fill="rgba(34, 211, 238, 0.2)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="600" y="140" fill="white" font-size="9" font-weight="600" text-anchor="middle">SSE 连接池</text>
+          <text x="600" y="155" fill="#22d3ee" font-size="7" text-anchor="middle">长连接 · 1s 推送检查</text>
+
+          <!-- 异常处理器 -->
+          <rect x="690" y="120" width="140" height="45" rx="6" fill="#0f172a"/>
+          <rect x="690" y="120" width="140" height="45" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="760" y="140" fill="white" font-size="9" font-weight="600" text-anchor="middle">异常处理器</text>
+          <text x="760" y="155" fill="#fb7185" font-size="7" text-anchor="middle">uncaughtException</text>
+
+          <!-- 共享内存 -->
+          <rect x="440" y="180" width="320" height="30" rx="4" fill="#0f172a"/>
+          <rect x="440" y="180" width="320" height="30" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="600" y="199" fill="white" font-size="9" font-weight="600" text-anchor="middle">共享内存: store = { pending[], completed[] }</text>
+
+          <!-- ngrok 子进程 -->
+          <rect x="50" y="270" width="200" height="80" rx="8" fill="#0f172a"/>
+          <rect x="50" y="270" width="200" height="80" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="150" y="295" fill="white" font-size="11" font-weight="600" text-anchor="middle">ngrok 子进程</text>
+          <text x="150" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">spawn() · detached: false</text>
+          <text x="150" y="327" fill="#fbbf24" font-size="7" text-anchor="middle">stdout: JSON 日志 → 解析隧道 URL</text>
+          <text x="150" y="340" fill="#94a3b8" font-size="7" text-anchor="middle">:4040 API → 获取公网地址</text>
+
+          <!-- 手机浏览器 -->
+          <rect x="350" y="270" width="200" height="60" rx="8" fill="#0f172a"/>
+          <rect x="350" y="270" width="200" height="60" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="450" y="295" fill="white" font-size="11" font-weight="600" text-anchor="middle">手机浏览器</text>
+          <text x="450" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">EventSource (SSE) · fetch API</text>
+
+          <!-- 喵提醒 HTTP -->
+          <rect x="620" y="270" width="230" height="60" rx="8" fill="#0f172a"/>
+          <rect x="620" y="270" width="230" height="60" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="735" y="295" fill="white" font-size="11" font-weight="600" text-anchor="middle">miaotixing.com</text>
+          <text x="735" y="312" fill="#94a3b8" font-size="8" text-anchor="middle">HTTP GET /trigger?id=xxx&amp;text=</text>
+
+          <!-- 磁盘 -->
+          <rect x="350" y="370" width="500" height="60" rx="8" fill="rgba(76, 29, 149, 0.1)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="365" y="388" fill="#a78bfa" font-size="9" font-weight="600">磁盘 I/O</text>
+          <rect x="380" y="398" width="200" height="25" rx="4" fill="#0f172a"/>
+          <rect x="380" y="398" width="200" height="25" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+          <text x="480" y="414" fill="white" font-size="8" text-anchor="middle">.data/requests.json (writeFileSync)</text>
+          <rect x="600" y="398" width="200" height="25" rx="4" fill="#0f172a"/>
+          <rect x="600" y="398" width="200" height="25" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+          <text x="700" y="414" fill="white" font-size="8" text-anchor="middle">.data/auth.json</text>
+
+          <!-- Arrows -->
+          <!-- stdin → MCP -->
+          <line x1="250" y1="65" x2="368" y2="80" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#a3c)"/>
+          <text x="300" y="60" fill="#22d3ee" font-size="7">stdin</text>
+
+          <!-- stdout → Claude -->
+          <line x1="368" y1="90" x2="250" y2="75" stroke="#34d399" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#a3e)"/>
+          <text x="300" y="100" fill="#34d399" font-size="7">stdout</text>
+
+          <!-- spawn ngrok -->
+          <path d="M 150 220 L 150 268" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#a3y)"/>
+          <text x="160" y="248" fill="#fbbf24" font-size="7">spawn()</text>
+
+          <!-- HTTP ↔ 手机 -->
+          <line x1="600" y1="220" x2="450" y2="268" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a3c)"/>
+          <line x1="450" y1="268" x2="600" y2="220" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="4,2" marker-end="url(#a3c)"/>
+          <text x="500" y="250" fill="#22d3ee" font-size="7">HTTP / SSE</text>
+
+          <!-- HTTP → 喵提醒 -->
+          <line x1="670" y1="105" x2="735" y2="268" stroke="#fb923c" stroke-width="1.2" marker-end="url(#a3)"/>
+          <text x="720" y="190" fill="#fb923c" font-size="7">http.request()</text>
+
+          <!-- 定时器 → HTTP 自检 -->
+          <path d="M 440 142 L 528 142 L 528 92" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#a3y)"/>
+          <text x="480" y="135" fill="#fbbf24" font-size="7">GET /health</text>
+
+          <!-- 磁盘 I/O -->
+          <line x1="600" y1="210" x2="600" y2="368" stroke="#a78bfa" stroke-width="1" marker-end="url(#a3)"/>
+          <text x="610" y="345" fill="#a78bfa" font-size="7">fs.write</text>
+
+          <!-- 通信协议标注 -->
+          <rect x="50" y="450" width="800" height="55" rx="6" fill="rgba(15, 23, 42, 0.8)" stroke="#1e293b" stroke-width="1"/>
+          <text x="70" y="468" fill="white" font-size="9" font-weight="600">进程间通信</text>
+          <line x1="70" y1="482" x2="100" y2="482" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="108" y="485" fill="#94a3b8" font-size="7">stdio (JSON-RPC)</text>
+          <line x1="230" y1="482" x2="260" y2="482" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="268" y="485" fill="#94a3b8" font-size="7">spawn (子进程)</text>
+          <line x1="390" y1="482" x2="420" y2="482" stroke="#fb923c" stroke-width="1.2"/>
+          <text x="428" y="485" fill="#94a3b8" font-size="7">HTTP/REST</text>
+          <line x1="520" y1="482" x2="550" y2="482" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="4,2"/>
+          <text x="558" y="485" fill="#94a3b8" font-size="7">SSE (Server-Sent Events)</text>
+          <line x1="720" y1="482" x2="750" y2="482" stroke="#a78bfa" stroke-width="1"/>
+          <text x="758" y="485" fill="#94a3b8" font-size="7">磁盘 I/O</text>
+        </svg>
+      </div>
+      <div class="view-desc">
+        <strong>进程视图</strong>描述运行时行为。整个系统运行在<strong>单个 Node.js 主进程</strong>中，内含 HTTP Server、stdin 解析器、定时器、SSE 连接池等。主进程会 <code>spawn()</code> 一个 <strong>ngrok 子进程</strong>用于隧道。关键并发点：<strong>阻塞等待循环</strong> (waitForStatus) 通过 1 秒轮询 store 对象实现，所有模块共享内存中的 <code>store</code> 对象。
+      </div>
+    </div>
+
+    <!-- ================================================================
+         视图 4: 物理视图 (Physical/Deployment View)
+         ================================================================ -->
+    <div class="view-section">
+      <div class="view-header">
+        <div class="view-number v4">4</div>
+        <div class="view-title">物理视图 (Physical View)</div>
+        <div class="view-subtitle">网络拓扑 · 部署</div>
+      </div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 900 480">
+          <defs>
+            <marker id="a4" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="a4y" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/>
+            </marker>
+            <marker id="a4c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+            <marker id="a4r" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+            </marker>
+            <pattern id="g4" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g4)"/>
+
+          <!-- 内网区域 -->
+          <rect x="30" y="20" width="380" height="440" rx="12" fill="rgba(6, 78, 59, 0.05)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+          <text x="45" y="40" fill="#34d399" font-size="10" font-weight="600">内网 (开发环境)</text>
+
+          <!-- 开发电脑 -->
+          <rect x="60" y="60" width="320" height="280" rx="10" fill="rgba(6, 78, 59, 0.1)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="80" y="82" fill="white" font-size="11" font-weight="600">开发电脑 (Windows)</text>
+          <text x="80" y="96" fill="#94a3b8" font-size="8">127.0.0.1 / 局域网 IP</text>
+
+          <!-- Claude Code -->
+          <rect x="80" y="110" width="130" height="50" rx="6" fill="#0f172a"/>
+          <rect x="80" y="110" width="130" height="50" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="145" y="132" fill="white" font-size="9" font-weight="600" text-anchor="middle">Claude Code</text>
+          <text x="145" y="148" fill="#94a3b8" font-size="7" text-anchor="middle">MCP Client</text>
+
+          <!-- Node.js Server -->
+          <rect x="230" y="110" width="130" height="50" rx="6" fill="#0f172a"/>
+          <rect x="230" y="110" width="130" height="50" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="295" y="132" fill="white" font-size="9" font-weight="600" text-anchor="middle">Node.js Server</text>
+          <text x="295" y="148" fill="#34d399" font-size="7" text-anchor="middle">:8765</text>
+
+          <!-- ngrok 进程 -->
+          <rect x="80" y="180" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="80" y="180" width="130" height="40" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+          <text x="145" y="203" fill="white" font-size="9" text-anchor="middle">ngrok 进程</text>
+
+          <!-- 数据文件 -->
+          <rect x="230" y="180" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="230" y="180" width="130" height="40" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="295" y="198" fill="white" font-size="9" text-anchor="middle">.data/</text>
+          <text x="295" y="212" fill="#94a3b8" font-size="7" text-anchor="middle">requests.json</text>
+
+          <!-- 局域网手机 -->
+          <rect x="80" y="250" width="280" height="40" rx="6" fill="rgba(34, 211, 238, 0.1)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,2"/>
+          <text x="220" y="273" fill="#22d3ee" font-size="8" text-anchor="middle">局域网直连: http://&lt;电脑IP&gt;:8765 (TUNNEL=none 时)</text>
+
+          <!-- 防火墙 -->
+          <rect x="140" y="320" width="220" height="30" rx="4" fill="#0f172a"/>
+          <rect x="140" y="320" width="220" height="30" rx="4" fill="rgba(136, 19, 55, 0.3)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="250" y="339" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">NAT / 防火墙</text>
+
+          <!-- 互联网云 -->
+          <rect x="440" y="60" width="140" height="80" rx="40" fill="#0f172a"/>
+          <rect x="440" y="60" width="140" height="80" rx="40" fill="rgba(251, 191, 36, 0.1)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="510" y="98" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">Internet</text>
+          <text x="510" y="116" fill="#94a3b8" font-size="7" text-anchor="middle">HTTPS</text>
+
+          <!-- ngrok 云服务 -->
+          <rect x="620" y="60" width="250" height="80" rx="8" fill="#0f172a"/>
+          <rect x="620" y="60" width="250" height="80" rx="8" fill="rgba(251, 191, 36, 0.1)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="745" y="85" fill="white" font-size="11" font-weight="600" text-anchor="middle">ngrok 云服务</text>
+          <text x="745" y="102" fill="#fbbf24" font-size="8" text-anchor="middle">petty-mutable-carnivore.ngrok-free.dev</text>
+          <text x="745" y="118" fill="#94a3b8" font-size="7" text-anchor="middle">隧道终端 · TLS 卸载</text>
+
+          <!-- 喵提醒服务 -->
+          <rect x="620" y="170" width="250" height="60" rx="8" fill="#0f172a"/>
+          <rect x="620" y="170" width="250" height="60" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="745" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">miaotixing.com</text>
+          <text x="745" y="212" fill="#94a3b8" font-size="8" text-anchor="middle">喵提醒 API · 微信推送网关</text>
+
+          <!-- 微信服务器 -->
+          <rect x="620" y="260" width="250" height="60" rx="8" fill="#0f172a"/>
+          <rect x="620" y="260" width="250" height="60" rx="8" fill="rgba(34, 211, 238, 0.2)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="745" y="285" fill="white" font-size="11" font-weight="600" text-anchor="middle">微信服务器</text>
+          <text x="745" y="302" fill="#94a3b8" font-size="8" text-anchor="middle">服务号消息推送</text>
+
+          <!-- 手机 (外部) -->
+          <rect x="620" y="360" width="250" height="90" rx="10" fill="#0f172a"/>
+          <rect x="620" y="360" width="250" height="90" rx="10" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="2"/>
+          <text x="745" y="385" fill="white" font-size="12" font-weight="600" text-anchor="middle">用户手机</text>
+          <text x="745" y="403" fill="#94a3b8" font-size="8" text-anchor="middle">浏览器: ngrok URL → 审批操作</text>
+          <text x="745" y="420" fill="#94a3b8" font-size="8" text-anchor="middle">微信: 接收喵提醒推送通知</text>
+          <text x="745" y="437" fill="#22d3ee" font-size="7" text-anchor="middle">任意地点 · 4G/5G/WiFi</text>
+
+          <!-- Arrows -->
+          <!-- Claude ↔ Server (stdio) -->
+          <line x1="210" y1="135" x2="228" y2="135" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#a4c)"/>
+          <line x1="228" y1="140" x2="210" y2="140" stroke="#34d399" stroke-width="1.5" stroke-dasharray="3,2" marker-end="url(#a4c)"/>
+          <text x="220" y="128" fill="#22d3ee" font-size="6">stdio</text>
+
+          <!-- Server → ngrok -->
+          <line x1="230" y1="200" x2="212" y2="200" stroke="#94a3b8" stroke-width="1" marker-end="url(#a4)"/>
+
+          <!-- Server ↔ 数据 -->
+          <line x1="360" y1="200" x2="360" y2="200" stroke="#a78bfa" stroke-width="1"/>
+
+          <!-- ngrok → Internet → ngrok cloud -->
+          <path d="M 145 220 L 145 250 Q 145 260 155 260 L 440 100 Q 450 95 460 95"
+                fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#a4y)"/>
+          <text x="200" y="290" fill="#fbbf24" font-size="7">隧道</text>
+
+          <!-- ngrok cloud → 手机 -->
+          <path d="M 745 140 L 745 358" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#a4y)"/>
+          <text x="755" y="250" fill="#fbbf24" font-size="7">HTTPS</text>
+
+          <!-- Server → 喵提醒 -->
+          <path d="M 360 135 L 500 135 Q 510 135 510 145 L 510 200 Q 510 210 520 210 L 618 200"
+                fill="none" stroke="#fb923c" stroke-width="1.2" marker-end="url(#a4)"/>
+          <text x="480" y="170" fill="#fb923c" font-size="7">HTTP GET</text>
+
+          <!-- 喵提醒 → 微信 -->
+          <line x1="745" y1="230" x2="745" y2="258" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a4c)"/>
+          <text x="755" y="248" fill="#22d3ee" font-size="7">推送</text>
+
+          <!-- 微信 → 手机 -->
+          <line x1="745" y1="320" x2="745" y2="358" stroke="#22d3ee" stroke-width="1.2" marker-end="url(#a4c)"/>
+          <text x="755" y="342" fill="#22d3ee" font-size="7">通知</text>
+
+          <!-- 手机 → ngrok cloud (审批操作) -->
+          <path d="M 660 390 L 530 390 Q 520 390 520 380 L 520 120 Q 520 110 530 110 L 618 100"
+                fill="none" stroke="#34d399" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#a4)"/>
+          <text x="505" y="350" fill="#34d399" font-size="7">审批操作</text>
+
+          <!-- 网络标注 -->
+          <rect x="30" y="380" width="380" height="70" rx="6" fill="rgba(15, 23, 42, 0.8)" stroke="#1e293b" stroke-width="1"/>
+          <text x="50" y="398" fill="white" font-size="9" font-weight="600">网络路径</text>
+          <text x="50" y="415" fill="#fbbf24" font-size="7">外网: 手机 → ngrok 云 → 隧道 → localhost:8765</text>
+          <text x="50" y="428" fill="#34d399" font-size="7">内网: 手机 → http://&lt;电脑IP&gt;:8765 (需同一 WiFi)</text>
+          <text x="50" y="441" fill="#fb923c" font-size="7">推送: server → miaotixing.com → 微信 → 手机</text>
+        </svg>
+      </div>
+      <div class="view-desc">
+        <strong>物理视图</strong>展示部署拓扑。核心节点是<strong>开发电脑</strong>（运行 Node.js + ngrok），通过 <strong>ngrok 隧道</strong>暴露到公网。推送链路：<strong>server → 喵提醒 API → 微信 → 手机通知</strong>。审批链路：<strong>手机浏览器 → ngrok 公网 URL → 隧道 → localhost:8765</strong>。同一 WiFi 下可绕过 ngrok 直连。
+      </div>
+    </div>
+
+    <!-- ================================================================
+         视图 5: 场景视图 (Scenarios)
+         ================================================================ -->
+    <div class="view-section">
+      <div class="view-header">
+        <div class="view-number v5">+</div>
+        <div class="view-title">场景视图 (Scenarios)</div>
+        <div class="view-subtitle">关键用例 · 串联 4 个视图</div>
+      </div>
+      <div class="diagram-container">
+        <svg viewBox="0 0 900 620">
+          <defs>
+            <marker id="a5" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+            </marker>
+            <marker id="a5c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/>
+            </marker>
+            <marker id="a5e" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+            </marker>
+            <marker id="a5r" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/>
+            </marker>
+            <pattern id="g5" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#g5)"/>
+
+          <!-- 场景 1: 操作审批 -->
+          <rect x="30" y="15" width="840" height="175" rx="10" fill="rgba(34, 211, 238, 0.05)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="45" y="35" fill="#22d3ee" font-size="10" font-weight="600">场景 1: 操作审批 — "帮我安装 axios"</text>
+
+          <!-- 步骤 -->
+          <rect x="50" y="50" width="110" height="40" rx="6" fill="#0f172a"/>
+          <rect x="50" y="50" width="110" height="40" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="105" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">用户输入</text>
+          <text x="105" y="82" fill="#94a3b8" font-size="7" text-anchor="middle">"帮我安装 axios"</text>
+
+          <rect x="180" y="50" width="110" height="40" rx="6" fill="#0f172a"/>
+          <rect x="180" y="50" width="110" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="235" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">Claude 调用</text>
+          <text x="235" y="82" fill="#34d399" font-size="7" text-anchor="middle">request_approval()</text>
+
+          <rect x="310" y="50" width="110" height="40" rx="6" fill="#0f172a"/>
+          <rect x="310" y="50" width="110" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="365" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">创建请求</text>
+          <text x="365" y="82" fill="#94a3b8" font-size="7" text-anchor="middle">createRequest()</text>
+
+          <rect x="440" y="50" width="110" height="40" rx="6" fill="#0f172a"/>
+          <rect x="440" y="50" width="110" height="40" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="495" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">推送通知</text>
+          <text x="495" y="82" fill="#fb923c" font-size="7" text-anchor="middle">喵提醒 → 微信</text>
+
+          <rect x="570" y="50" width="110" height="40" rx="6" fill="#0f172a"/>
+          <rect x="570" y="50" width="110" height="40" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="625" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">手机审批</text>
+          <text x="625" y="82" fill="#22d3ee" font-size="7" text-anchor="middle">点击 [批准]</text>
+
+          <rect x="700" y="50" width="150" height="40" rx="6" fill="#0f172a"/>
+          <rect x="700" y="50" width="150" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="775" y="68" fill="white" font-size="8" font-weight="600" text-anchor="middle">Claude 收到结果</text>
+          <text x="775" y="82" fill="#34d399" font-size="7" text-anchor="middle">{status:"approved"}</text>
+
+          <!-- 场景 1 箭头 -->
+          <line x1="160" y1="70" x2="178" y2="70" stroke="#22d3ee" stroke-width="1" marker-end="url(#a5c)"/>
+          <line x1="290" y1="70" x2="308" y2="70" stroke="#34d399" stroke-width="1" marker-end="url(#a5e)"/>
+          <line x1="420" y1="70" x2="438" y2="70" stroke="#fb923c" stroke-width="1" marker-end="url(#a5)"/>
+          <line x1="550" y1="70" x2="568" y2="70" stroke="#22d3ee" stroke-width="1" marker-end="url(#a5c)"/>
+          <line x1="680" y1="70" x2="698" y2="70" stroke="#34d399" stroke-width="1" marker-end="url(#a5e)"/>
+
+          <!-- 阻塞等待标注 -->
+          <rect x="180" y="100" width="520" height="30" rx="4" fill="rgba(251, 146, 60, 0.1)" stroke="#fb923c" stroke-width="0.5" stroke-dasharray="3,2"/>
+          <text x="440" y="118" fill="#fb923c" font-size="8" text-anchor="middle">⏳ waitForStatus() 阻塞等待 · 每 1 秒轮询 store · 超时 300 秒</text>
+
+          <!-- 涉及视图标注 -->
+          <text x="50" y="155" fill="#64748b" font-size="7">逻辑: 请求管理模块 · 开发: server.js createRequest() · 进程: HTTP Server + 阻塞循环 · 物理: 手机→ngrok→localhost</text>
+          <text x="50" y="170" fill="#64748b" font-size="7">逻辑: 推送适配层 · 开发: pushNotify() · 进程: http.request() · 物理: server→miaotixing.com→微信→手机</text>
+
+          <!-- 场景 2: 多轮对话 -->
+          <rect x="30" y="205" width="840" height="185" rx="10" fill="rgba(52, 211, 153, 0.05)" stroke="#34d399" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="45" y="225" fill="#34d399" font-size="10" font-weight="600">场景 2: 多轮对话 — "帮我想个项目名"</text>
+
+          <!-- 轮次 1 -->
+          <rect x="50" y="240" width="120" height="35" rx="6" fill="#0f172a"/>
+          <rect x="50" y="240" width="120" height="35" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="110" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">Claude 提问</text>
+          <text x="110" y="270" fill="#34d399" font-size="6" text-anchor="middle">ask_question()</text>
+
+          <rect x="190" y="240" width="120" height="35" rx="6" fill="#0f172a"/>
+          <rect x="190" y="240" width="120" height="35" rx="6" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="250" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">微信收到选项</text>
+          <text x="250" y="270" fill="#fb923c" font-size="6" text-anchor="middle">1.隔空取物 2.飞鸽传令</text>
+
+          <rect x="330" y="240" width="120" height="35" rx="6" fill="#0f172a"/>
+          <rect x="330" y="240" width="120" height="35" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="390" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">用户回复 "2"</text>
+          <text x="390" y="270" fill="#22d3ee" font-size="6" text-anchor="middle">replyRequest()</text>
+
+          <!-- 轮次 2 -->
+          <rect x="470" y="240" width="120" height="35" rx="6" fill="#0f172a"/>
+          <rect x="470" y="240" width="120" height="35" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="530" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">Claude 追问</text>
+          <text x="530" y="270" fill="#34d399" font-size="6" text-anchor="middle">conversation_id</text>
+
+          <rect x="610" y="240" width="120" height="35" rx="6" fill="#0f172a"/>
+          <rect x="610" y="240" width="120" height="35" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="670" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">用户回复</text>
+          <text x="670" y="270" fill="#22d3ee" font-size="6" text-anchor="middle">"就叫飞鸽传令吧"</text>
+
+          <rect x="750" y="240" width="100" height="35" rx="6" fill="#0f172a"/>
+          <rect x="750" y="240" width="100" height="35" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="800" y="258" fill="white" font-size="8" font-weight="600" text-anchor="middle">对话结束</text>
+          <text x="800" y="270" fill="#34d399" font-size="6" text-anchor="middle">close_conversation()</text>
+
+          <!-- 对话历史 -->
+          <rect x="50" y="290" width="800" height="40" rx="4" fill="rgba(34, 211, 238, 0.05)" stroke="#22d3ee" stroke-width="0.5"/>
+          <text x="60" y="308" fill="#22d3ee" font-size="8">🤖 Claude:</text>
+          <text x="145" y="308" fill="#94a3b8" font-size="7">"帮你想了一些项目名：1.隔空取物 2.飞鸽传令 3.掌上提线..."</text>
+          <text x="60" y="322" fill="#22d3ee" font-size="8">📱 用户:</text>
+          <text x="130" y="322" fill="#94a3b8" font-size="7">"2" → Claude: "飞鸽传令，好名字！要注册域名吗？" → 用户: "好的，帮我注册"</text>
+
+          <text x="50" y="360" fill="#64748b" font-size="7">关键: conversation_id 关联同一对话 · messages[] 保存历史 · reply 记录最新回复 · type="question" 保持 pending 等待追问</text>
+
+          <!-- 场景 3: 自愈机制 -->
+          <rect x="30" y="405" width="840" height="195" rx="10" fill="rgba(251, 113, 133, 0.05)" stroke="#fb7185" stroke-width="1" stroke-dasharray="6,3"/>
+          <text x="45" y="425" fill="#fb7185" font-size="10" font-weight="600">场景 3: 自愈机制 — 端口冲突自动恢复</text>
+
+          <!-- 步骤流 -->
+          <rect x="50" y="440" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="50" y="440" width="130" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="115" y="458" fill="white" font-size="8" font-weight="600" text-anchor="middle">启动服务器</text>
+          <text x="115" y="472" fill="#fb7185" font-size="7" text-anchor="middle">EADDRINUSE!</text>
+
+          <rect x="200" y="440" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="200" y="440" width="130" height="40" rx="6" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="265" y="458" fill="white" font-size="8" font-weight="600" text-anchor="middle">错误处理器触发</text>
+          <text x="265" y="472" fill="#fbbf24" font-size="7" text-anchor="middle">server.once('error')</text>
+
+          <rect x="350" y="440" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="350" y="440" width="130" height="40" rx="6" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="415" y="458" fill="white" font-size="8" font-weight="600" text-anchor="middle">递增延迟重试</text>
+          <text x="415" y="472" fill="#fbbf24" font-size="7" text-anchor="middle">2s → 4s → 6s → ...</text>
+
+          <rect x="500" y="440" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="500" y="440" width="130" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="565" y="458" fill="white" font-size="8" font-weight="600" text-anchor="middle">端口释放，重启成功</text>
+          <text x="565" y="472" fill="#34d399" font-size="7" text-anchor="middle">✅ :8765 可用</text>
+
+          <!-- 健康监控路径 -->
+          <rect x="50" y="500" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="50" y="500" width="130" height="40" rx="6" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="115" y="518" fill="white" font-size="8" font-weight="600" text-anchor="middle">运行中...</text>
+          <text x="115" y="532" fill="#fbbf24" font-size="7" text-anchor="middle">setInterval 60s</text>
+
+          <rect x="200" y="500" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="200" y="500" width="130" height="40" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="265" y="518" fill="white" font-size="8" font-weight="600" text-anchor="middle">健康检查失败</text>
+          <text x="265" y="532" fill="#fb7185" font-size="7" text-anchor="middle">/api/health 无响应</text>
+
+          <rect x="350" y="500" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="350" y="500" width="130" height="40" rx="6" fill="rgba(251, 113, 133, 0.3)" stroke="#fb7185" stroke-width="1.5"/>
+          <text x="415" y="518" fill="white" font-size="8" font-weight="600" text-anchor="middle">forceRestart()</text>
+          <text x="415" y="532" fill="#fb7185" font-size="7" text-anchor="middle">doListen() 重新绑定</text>
+
+          <rect x="500" y="500" width="130" height="40" rx="6" fill="#0f172a"/>
+          <rect x="500" y="500" width="130" height="40" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="565" y="518" fill="white" font-size="8" font-weight="600" text-anchor="middle">恢复正常</text>
+          <text x="565" y="532" fill="#34d399" font-size="7" text-anchor="middle">consecutiveFailures=0</text>
+
+          <!-- 安全阈值 -->
+          <rect x="650" y="470" width="200" height="50" rx="6" fill="#0f172a"/>
+          <rect x="650" y="470" width="200" height="50" rx="6" fill="rgba(136, 19, 55, 0.3)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,2"/>
+          <text x="750" y="490" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">安全阈值</text>
+          <text x="750" y="506" fill="#94a3b8" font-size="7" text-anchor="middle">连续崩溃 &gt;5 次 → 放弃重启</text>
+          <text x="750" y="516" fill="#94a3b8" font-size="7" text-anchor="middle">避免无限重启死循环</text>
+
+          <!-- 箭头 -->
+          <line x1="180" y1="460" x2="198" y2="460" stroke="#fb7185" stroke-width="1" marker-end="url(#a5r)"/>
+          <line x1="330" y1="460" x2="348" y2="460" stroke="#fbbf24" stroke-width="1" marker-end="url(#a5)"/>
+          <line x1="480" y1="460" x2="498" y2="460" stroke="#34d399" stroke-width="1" marker-end="url(#a5e)"/>
+
+          <line x1="180" y1="520" x2="198" y2="520" stroke="#fb7185" stroke-width="1" marker-end="url(#a5r)"/>
+          <line x1="330" y1="520" x2="348" y2="520" stroke="#fb7185" stroke-width="1" marker-end="url(#a5r)"/>
+          <line x1="480" y1="520" x2="498" y2="520" stroke="#34d399" stroke-width="1" marker-end="url(#a5e)"/>
+
+          <text x="50" y="570" fill="#64748b" font-size="7">涉及: 进程视图(server.once) · 开发视图(doListen/startHealthMonitor) · 逻辑视图(安全模块) · 物理视图(单进程自愈)</text>
+          <text x="50" y="585" fill="#64748b" font-size="7">killPortOccupant() 在 MCP 启动前清理旧进程 · uncaughtException 全局捕获防止进程退出 · startHealthMonitor 每 60s 自检</text>
+        </svg>
+      </div>
+      <div class="view-desc">
+        <strong>场景视图</strong>用 3 个关键用例串联前 4 个视图。<strong>场景 1</strong> 展示完整审批链路（用户→Claude→MCP→推送→手机→回传）；<strong>场景 2</strong> 展示多轮对话如何复用 conversation_id 和 messages 数组；<strong>场景 3</strong> 展示自愈机制的触发与恢复流程。每个场景都横跨逻辑、开发、进程、物理四个维度。
+      </div>
+    </div>
+
+    <p class="footer">
+      Claude 手机审批服务器 • 4+1 架构视图 (Kruchten, 1995) • github.com/AiMind2025/claude-approver
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect(); const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a'); link.download = 'claude-approver-4plus1-views.png'; link.href = canvas.toDataURL('image/png'); link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect(); const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('claude-approver-4plus1-views.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>
